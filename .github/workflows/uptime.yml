@@ -1,63 +1,13 @@
-name: Cinepolis Uptime Check
+- name: Update status.json
+  run: |
+    TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+    if [[ "${{ steps.check_site.outputs.STATUS }}" == "200" ]]; then
+      STATUS="UP"
+    else
+      STATUS="DOWN"
+    fi
 
-on:
-  schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes
-  workflow_dispatch:
-
-jobs:
-  uptime:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
-
-      # Step 1: Check Cinepolis website with browser headers
-      - name: Check Cinepolis Website
-        id: check_site
-        run: |
-          STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
-                        -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
-                        -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9" \
-                        https://www.cinepolis.com/in)
-          echo "STATUS=$STATUS_CODE" >> $GITHUB_OUTPUT
-          echo "STATUS_CODE=$STATUS_CODE"
-
-      # Step 2: Telegram alert if DOWN
-      - name: Telegram Alert - DOWN
-        if: steps.check_site.outputs.STATUS != '200'
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Cinepolis Website DOWN!*  
-Status Code: ${{ steps.check_site.outputs.STATUS }}  
-Checked At: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            -d text="$MSG" \
-            -d parse_mode="Markdown"
-
-      # Step 3: Telegram alert if UP
-      - name: Telegram Alert - UP
-        if: steps.check_site.outputs.STATUS == '200'
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="✅ Cinepolis Website is UP (200)  
-Checked At: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            -d text="$MSG"
-
-      # Step 4: Update status.json for dashboard
-      - name: Update status.json
-        run: |
-          TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          STATUS=$([[ "${{ steps.check_site.outputs.STATUS }}" == "200" ]] && echo "UP" || echo "DOWN")
-          cat <<EOF > status.json
+    cat <<EOF > status.json
 {
   "url": "https://www.cinepolis.com/in",
   "status": "$STATUS",
@@ -66,8 +16,8 @@ Checked At: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 }
 EOF
 
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add status.json
-          git commit -m "Update status.json: $STATUS" || echo "No changes"
-          git push
+    git config user.name "GitHub Actions"
+    git config user.email "actions@github.com"
+    git add status.json
+    git commit -m "Update status.json: $STATUS" || echo "No changes"
+    git push
