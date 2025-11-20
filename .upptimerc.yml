@@ -1,28 +1,28 @@
-# Change these first
-owner: Raj-IT          # <-- आपका GitHub username
-repo: cinepolis-status # <-- आपकी repository का नाम
+# GitHub repo details
+owner: rjkumar081
+repo: cinepolis-status
 
+# Websites to monitor
 sites:
-  - name: Cinepolis India Website
+  - name: Cinepolis India
     url: https://www.cinepolis.com/in
 
+# Status website configuration
 status-website:
-  # यदि आप custom domain नहीं यूज़ कर रहे हैं तो CNAME हटाना जरूरी है
-  # cname: demo.upptime.js.org
-
-  # GitHub Pages के लिए baseUrl enable
+  # GitHub Pages (no custom domain)
   baseUrl: /cinepolis-status
 
+  name: Cinepolis Status Monitor
   logoUrl: https://raw.githubusercontent.com/upptime/upptime.js.org/master/static/img/icon.svg
-  name: Cinepolis Website Status
-  introTitle: "Cinepolis Website Status & Uptime Monitor"
+  
+  introTitle: "Cinepolis Website Uptime Monitor"
   introMessage: >
-    This status page automatically monitors **https://www.cinepolis.com/in**
-    every 5 minutes and shows real-time uptime, response timestamps,
-    and incident history. Powered by GitHub Actions and Upptime.
-
+    This dashboard shows the real-time uptime and response status of 
+    **https://www.cinepolis.com/in**.  
+    All checks run automatically every 5 minutes using GitHub Actions.
+  
   navbar:
     - title: Status
       href: /
     - title: GitHub Repo
-      href: https://github.com/Raj-IT/cinepolis-status
+      href: https://github.com/rjkumar081/cinepolis-status
