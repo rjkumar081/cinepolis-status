@@ -1,8 +1,8 @@
-name: Uptime Check
+name: Cinepolis Uptime Check (Secure + Fixed 403)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # Every 5 minutes
+    - cron: "*/5 * * * *"   # every 1 minutes
   workflow_dispatch:
 
 jobs:
@@ -13,34 +13,59 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v3
 
+      # Check Cinepolis Website with Browser-like headers
       - name: Check Cinepolis Website
         id: check_site
         run: |
-          STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" "https://www.cinepolis.com/in")
+          STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
+                        -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+                        -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9" \
+                        https://www.cinepolis.com/in)
           echo "STATUS=$STATUS_CODE" >> $GITHUB_OUTPUT
 
-      # 🔴 SEND ALERT IF DOWN
+      # Telegram alert if DOWN
       - name: Send Telegram Alert (DOWN)
         if: steps.check_site.outputs.STATUS != '200'
         run: |
-          TOKEN="8126378434:AAEQDXyBmz_lX8cOKLERiN3gBiRio9Zkjm4"
-          CHAT_ID="8421770138"
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
           MSG="🚨 *Cinepolis Website DOWN!*  
-          Status Code: ${{ steps.check_site.outputs.STATUS }}"
-          
+Status Code: ${{ steps.check_site.outputs.STATUS }}  
+Checked At: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             -d text="$MSG" \
             -d parse_mode="Markdown"
 
-      # 🟢 SEND ALERT IF UP
+      # Telegram alert if UP
       - name: Send Telegram Alert (UP)
         if: steps.check_site.outputs.STATUS == '200'
         run: |
-          TOKEN="8126378434:AAEQDXyBmz_lX8cOKLERiN3gBiRio9Zkjm4"
-          CHAT_ID="8421770138"
-          MSG="✅ Cinepolis Website is UP (200)"
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG="✅ Cinepolis Website is UP (200)  
+Checked At: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
-            -d text="$MSG"
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
+
+      # Optional: Update status.json for dashboard
+      - name: Update status.json
+        run: |
+          TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          cat <<EOF > status.json
+{
+  "url": "https://www.cinepolis.com/in",
+  "status": "${{ steps.check_site.outputs.STATUS == '200' && echo 'UP' || echo 'DOWN' }}",
+  "status_code": "${{ steps.check_site.outputs.STATUS }}",
+  "checked_at": "$TIME_NOW"
+}
+EOF
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json
+          git commit -m "Update status.json: ${{ steps.check_site.outputs.STATUS }}" || echo "No changes"
+          git push
