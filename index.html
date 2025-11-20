@@ -1,82 +1,109 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Cinépolis Uptime Status</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
-    body {
-        font-family: Arial, sans-serif;
-        background: #f3f6fa;
-        margin: 0;
-        padding: 20px;
-        color: #222;
-        text-align: center;
-    }
-    h1 {
-        font-size: 32px;
-        margin-bottom: 10px;
-    }
-    #statusBox {
-        display: inline-block;
-        padding: 20px;
-        border-radius: 12px;
-        margin-top: 20px;
-        font-size: 20px;
-        font-weight: bold;
-    }
-    .up { background: #d6ffde; border: 2px solid #39c060; color: #117a3d; }
-    .down { background: #ffe1e1; border: 2px solid #d9534f; color: #a30000; }
-    #logContainer {
-        margin-top: 40px;
-        max-width: 700px;
-        margin-left: auto;
-        margin-right: auto;
-        background: #fff;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    }
+body {
+    font-family: Arial;
+    background: #f3f7ff;
+    margin: 0; padding: 20px; text-align: center;
+}
+h1 { font-size: 35px; }
+#statusBox {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 20px 30px;
+    border-radius: 12px;
+    font-size: 22px;
+    font-weight: bold;
+}
+.up { background:#d7ffde; color:#0a7f25; border:2px solid #38c35a; }
+.down { background:#ffe0e0; color:#a00000; border:2px solid #d9534f; }
+
+#logsBox {
+    margin-top: 40px;
+    width: 80%;
+    margin-left: auto; margin-right: auto;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+}
 </style>
 </head>
+
 <body>
 
-<h1>Cinépolis Website Uptime Monitor</h1>
-<div id="statusBox">Loading latest status...</div>
+<h1>🎬 Cinépolis Uptime Monitor</h1>
+<div id="statusBox">Loading...</div>
 
-<div id="logContainer">
-    <h2>Recent Checks (Last 20)</h2>
-    <pre id="logs">Loading...</pre>
+<h2>📈 Last 24 Hour Uptime</h2>
+<div id="uptime24h" style="font-size:20px; font-weight:600;">Calculating...</div>
+
+<canvas id="chart" width="600" height="200" style="margin-top:30px;"></canvas>
+
+<div id="logsBox">
+    <h2>🕒 Recent Checks (Last 20)</h2>
+    <pre id="logs" style="text-align:left"></pre>
 </div>
 
 <script>
-async function loadStatus() {
-    const response = await fetch("logs/status.json");
-    const text = await response.text();
-
-    // Clean trailing comma for parsing
-    const clean = "[" + text.replace(/,\s*$/, "") + "]";
+async function loadData() {
+    const raw = await fetch("logs/status.json").then(r => r.text());
+    const clean = "[" + raw.replace(/,\s*$/, "") + "]";
     const data = JSON.parse(clean);
-    
+
+    // Latest status
     const latest = data[data.length - 1];
+    const box = document.getElementById("statusBox");
 
     if (latest.status === "200") {
-        document.getElementById("statusBox").className = "up";
-        document.getElementById("statusBox").innerHTML = "🟢 Site is UP";
+        box.className = "up";
+        box.innerHTML = "🟢 Site is UP";
     } else {
-        document.getElementById("statusBox").className = "down";
-        document.getElementById("statusBox").innerHTML = "🔴 Site is DOWN";
+        box.className = "down";
+        box.innerHTML = "🔴 Site is DOWN";
     }
 
-    // Show last 20 logs nicely
-    const last = data.slice(-20).reverse()
-        .map(entry => `${entry.time} → ${entry.status}`)
-        .join("\n");
+    // Last 20 logs
+    document.getElementById("logs").textContent =
+        data.slice(-20).reverse().map(x => `${x.time} → ${x.status}`).join("\n");
 
-    document.getElementById("logs").textContent = last;
+    // 24-hour uptime
+    const last24 = data.slice(-1440); // 1440 mins = 24h
+    const upCount = last24.filter(x => x.status === "200").length;
+    const uptime = ((upCount / last24.length) * 100).toFixed(2);
+
+    document.getElementById("uptime24h").innerHTML = uptime + "%";
+
+    // Graph
+    const labels = last24.map(x => x.time);
+    const values = last24.map(x => x.status === "200" ? 1 : 0);
+
+    new Chart(document.getElementById("chart"), {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Uptime (1 = UP, 0 = DOWN)",
+                data: values,
+                borderWidth: 2,
+                tension: 0.3
+            }]
+        },
+        options: {
+            scales: {
+                y: { min:0, max:1 }
+            }
+        }
+    });
 }
 
-loadStatus();
-setInterval(loadStatus, 5000); // auto-refresh every 5 seconds
+loadData();
+setInterval(loadData, 5000);
 </script>
 
 </body>
