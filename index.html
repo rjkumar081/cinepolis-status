@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cinépolis Uptime Status</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #f3f6fa;
+        margin: 0;
+        padding: 20px;
+        color: #222;
+        text-align: center;
+    }
+    h1 {
+        font-size: 32px;
+        margin-bottom: 10px;
+    }
+    #statusBox {
+        display: inline-block;
+        padding: 20px;
+        border-radius: 12px;
+        margin-top: 20px;
+        font-size: 20px;
+        font-weight: bold;
+    }
+    .up { background: #d6ffde; border: 2px solid #39c060; color: #117a3d; }
+    .down { background: #ffe1e1; border: 2px solid #d9534f; color: #a30000; }
+    #logContainer {
+        margin-top: 40px;
+        max-width: 700px;
+        margin-left: auto;
+        margin-right: auto;
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+</style>
+</head>
+<body>
+
+<h1>Cinépolis Website Uptime Monitor</h1>
+<div id="statusBox">Loading latest status...</div>
+
+<div id="logContainer">
+    <h2>Recent Checks (Last 20)</h2>
+    <pre id="logs">Loading...</pre>
+</div>
+
+<script>
+async function loadStatus() {
+    const response = await fetch("logs/status.json");
+    const text = await response.text();
+
+    // Clean trailing comma for parsing
+    const clean = "[" + text.replace(/,\s*$/, "") + "]";
+    const data = JSON.parse(clean);
+    
+    const latest = data[data.length - 1];
+
+    if (latest.status === "200") {
+        document.getElementById("statusBox").className = "up";
+        document.getElementById("statusBox").innerHTML = "🟢 Site is UP";
+    } else {
+        document.getElementById("statusBox").className = "down";
+        document.getElementById("statusBox").innerHTML = "🔴 Site is DOWN";
+    }
+
+    // Show last 20 logs nicely
+    const last = data.slice(-20).reverse()
+        .map(entry => `${entry.time} → ${entry.status}`)
+        .join("\n");
+
+    document.getElementById("logs").textContent = last;
+}
+
+loadStatus();
+setInterval(loadStatus, 5000); // auto-refresh every 5 seconds
+</script>
+
+</body>
+</html>
