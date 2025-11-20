@@ -1,16 +1,62 @@
-- name: Update status.json
-  run: |
-    TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-    # Store output in local bash variable
-    SITE_STATUS="${{ steps.check_site.outputs.STATUS }}"
-    
-    if [ "$SITE_STATUS" = "200" ]; then
-      STATUS="UP"
-    else
-      STATUS="DOWN"
-    fi
+name: Cinepolis Uptime Check
 
-    cat <<EOF > status.json
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  uptime:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      # Step 1: Check Cinepolis website with browser headers
+      - name: Check Cinepolis Website
+        id: check_site
+        run: |
+          # The -o /dev/null silences the output, -s makes it silent, -w "%{http_code}" prints only the status code.
+          STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9" \
+            https://www.cinepolis.com/in)
+          # FIX 1: Corrected GITHUB_OUTPUT variable name to STATUS
+          echo "STATUS=$STATUS_CODE" >> $GITHUB_OUTPUT
+
+      # Step 2: Telegram alert if DOWN
+      - name: Telegram Alert - DOWN
+        if: steps.check_site.outputs.STATUS != '200'
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          # Added repository and workflow name for better context in alert
+          MSG="🚨 *Cinepolis Website DOWN!* 🚨\n*Status Code:* ${{ steps.check_site.outputs.STATUS }}\n*Repo:* ${{ github.repository }}"
+
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown"
+
+      # Step 3: Remove unnecessary 'UP' alert. If you only want an alert when it's DOWN.
+      # - name: Telegram Alert - UP
+      #   if: steps.check_site.outputs.STATUS == '200'
+      #   run: |
+      #     ... (Removed the unnecessary 'UP' alert to avoid spam on every successful check)
+
+      # Step 4: Update status.json for dashboard
+      - name: Update status.json
+        run: |
+          TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          SITE_STATUS="${{ steps.check_site.outputs.STATUS }}"
+          if [ "$SITE_STATUS" = "200" ]; then
+            STATUS="UP"
+          else
+            STATUS="DOWN"
+          fi
+
+          cat <<EOF > status.json
 {
   "url": "https://www.cinepolis.com/in",
   "status": "$STATUS",
@@ -19,8 +65,9 @@
 }
 EOF
 
-    git config user.name "GitHub Actions"
-    git config user.email "actions@github.com"
-    git add status.json
-    git commit -m "Update status.json: $STATUS" || echo "No changes"
-    git push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json
+          git commit -m "Update status.json: $STATUS ($SITE_STATUS)" || echo "No changes"
+          # Force push to main/master branch. You might need to adjust the branch name.
+          git push
