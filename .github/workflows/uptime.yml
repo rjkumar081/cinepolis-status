@@ -1,11 +1,20 @@
-name: Uptime
+name: Cinepolis Website Uptime
+
 on:
   schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+    - cron: "*/1 * * * *"   # every 1 minute
+  workflow_dispatch:        # manual run button enable
+
 jobs:
-  check:
+  ping:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: upptime/uptime-monitor@v1
+      - name: Check website status
+        run: |
+          STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" https://cinepolis.com/in)
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Site DOWN"
+            exit 1
+          fi
+          echo "Site UP"
