@@ -1,20 +1,36 @@
-name: Cinepolis Website Uptime
+name: Cinepolis Uptime Check
 
 on:
   schedule:
-    - cron: "*/1 * * * *"   # every 1 minute
-  workflow_dispatch:        # manual run button enable
+    - cron: "*/1 * * * *"   # Run every 1 minute
+  workflow_dispatch:        # Show "Run Workflow" button
 
 jobs:
-  ping:
+  check:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check website status
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Check Cinepolis status
         run: |
           STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" https://cinepolis.com/in)
-          echo "HTTP Status: $STATUS"
+          TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          echo "[$TIME] STATUS: $STATUS"
+          echo "{ \"time\": \"$TIME\", \"status\": \"$STATUS\" }," >> logs/status.json
+
           if [ "$STATUS" != "200" ]; then
-            echo "Site DOWN"
-            exit 1
+            echo "DOWN detected"
           fi
-          echo "Site UP"
+
+      - name: Commit log file
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add logs/status.json
+          git commit -m "Update uptime log" || echo "No changes"
+          git push
