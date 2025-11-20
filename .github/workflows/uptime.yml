@@ -62,12 +62,12 @@ jobs:
           
           # Generate the JSON file content
           cat <<EOF > status.json
-{
+
   "url": "https://www.cinepolis.com/in",
   "status": "$STATUS",
   "status_code": "$SITE_STATUS",
   "checked_at": "$TIME_NOW"
-}
+
 EOF
           
           # Git configuration
