@@ -1,28 +1,25 @@
-# GitHub repo details
 owner: rjkumar081
-repo: cinepolis-status
-
-# Websites to monitor
-sites:
-  - name: Cinepolis India
-    url: https://www.cinepolis.com/in
-
-# Status website configuration
+deploy:
+  branch: gh-pages
+  folder: "public"
+checks:
+  - id: cinepolis
+    name: Cinepolis India Website
+    url: "https://www.cinepolis.com/in"
+    method: GET
+    expectedStatusCodes:
+      - 200
+notifications:
+  commits: true
+  status: true
 status-website:
-  # GitHub Pages (no custom domain)
-  baseUrl: /cinepolis-status
-
-  name: Cinepolis Status Monitor
-  logoUrl: https://raw.githubusercontent.com/upptime/upptime.js.org/master/static/img/icon.svg
-  
-  introTitle: "Cinepolis Website Uptime Monitor"
-  introMessage: >
-    This dashboard shows the real-time uptime and response status of 
-    **https://www.cinepolis.com/in**.  
-    All checks run automatically every 5 minutes using GitHub Actions.
-  
+  cname: cinepolis-status
+  logoUrl: ""
+  favicon: ""
+  baseUrl: "https://rjkumar081.github.io/cinepolis-status"
   navbar:
-    - title: Status
-      href: /
-    - title: GitHub Repo
-      href: https://github.com/rjkumar081/cinepolis-status
+    - name: Home
+      url: /
+    - name: Status
+      url: /status
+  theme: dark
