@@ -5,7 +5,6 @@ on:
     - cron: "*/3 * * * *"   # every 3 minutes
   workflow_dispatch:
 
-
 jobs:
   monitor:
     permissions:
@@ -23,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install node-fetch fs-extra
+          npm install node-fetch@2 fs-extra
 
       - name: Check Website Status and Update Status.json
         id: check_site
@@ -36,7 +35,7 @@ jobs:
           const ROOT_STATUS_FILE = path.join('public','status.json');
           const LOG_FOLDER = path.join('public','logs');
           const URL = 'https://www.cinepolis.com/in';
-const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
+          const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
 
           (async () => {
             let status = 'DOWN';
@@ -53,10 +52,8 @@ const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
               console.error('Error accessing site:', err.message);
             }
 
-            // Ensure logs folder exists
             await fs.ensureDir(LOG_FOLDER);
 
-            // Read existing log
             let log = [];
             if (await fs.pathExists(ROOT_STATUS_FILE)) {
               try {
@@ -68,7 +65,6 @@ const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
               }
             }
 
-            // Add new entry
             const entry = {
               checked_at: new Date().toISOString(),
               status: status,
@@ -77,22 +73,16 @@ const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
             };
             log.push(entry);
 
-            // Keep last MAX_LOG entries
-const cutoffTime = Date.now() - LOG_RETENTION_HOURS * 60 * 60 * 1000;
+            // keep only last 7 days logs
+            const cutoffTime = Date.now() - LOG_RETENTION_HOURS * 60 * 60 * 1000;
+            log = log.filter(e => new Date(e.checked_at).getTime() >= cutoffTime);
 
-log = log.filter(e => {
-  return new Date(e.checked_at).getTime() >= cutoffTime;
-});
-
-            // Calculate uptime %
             const upCount = log.filter(e => e.status === 'UP').length;
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
-            // Save log
             await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
             await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            // Export variables for Telegram
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
@@ -100,17 +90,9 @@ log = log.filter(e => {
           })();
           EOF
 
-      - name: Telegram Alert - DOWN
-        if: ${{ env.STATUS != 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
-
+      # -------------------------------
+      #       UP ALERT (FIRST)
+      # -------------------------------
       - name: Telegram Alert - UP (if previously DOWN)
         if: ${{ env.STATUS == 'UP' }}
         run: |
@@ -119,9 +101,23 @@ log = log.filter(e => {
           PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
           
           if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+            MSG="✅ *Website is UP!*%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (7d):* ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
               -d chat_id="$CHAT_ID" \
               --data-urlencode "text=$MSG" \
               -d parse_mode="Markdown"
           fi
+
+      # -------------------------------
+      #       DOWN ALERT (SECOND)
+      # -------------------------------
+      - name: Telegram Alert - DOWN
+        if: ${{ env.STATUS != 'UP' }}
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG="🚨 *Website DOWN!*%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (7d):* ${{ env.UPTIME_PERCENT }}%"
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            --data-urlencode "text=$MSG" \
+            -d parse_mode="Markdown"
