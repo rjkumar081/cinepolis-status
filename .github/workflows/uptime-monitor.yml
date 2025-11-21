@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/3 * * * *"   # every 3 minutes
+    - cron: "* * * * *"   # every minute
   workflow_dispatch:
 
 jobs:
@@ -23,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install puppeteer fs-extra jq
+          npm install puppeteer jq
 
-      - name: Check Website Status and Update Status.json
+      - name: Check Website Status
         id: check_site
         run: |
           node <<'EOF'
@@ -96,7 +96,7 @@ jobs:
           })();
           EOF
 
-         - name: Telegram Alert - DOWN
+      - name: Telegram Alert - DOWN
         if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
@@ -122,14 +122,14 @@ jobs:
               --data-urlencode "text=$MSG" \
               -d parse_mode="Markdown"
           fi
-- name: Commit status.json
-  run: |
-    git config user.name "GitHub Actions"
-    git config user.email "actions@github.com"
-    git add status.json
-    if git diff --staged --quiet; then
-      echo "No changes to commit."
-    else
-      git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
-      git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
-    fi
+
+      - name: Commit status.json
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
+            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
