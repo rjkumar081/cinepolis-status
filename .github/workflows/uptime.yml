@@ -2,7 +2,7 @@ name: Cinepolis Uptime Check
 
 on:
   schedule:
-    - cron: "* * * * *"   # every minute
+    - cron: "* * * * *"  # every minute
   workflow_dispatch:
 
 jobs:
@@ -12,50 +12,67 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 1: Check Cinepolis website
-      - name: Check Cinepolis Website Status
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install puppeteer
+
+      - name: Check Cinepolis Website in Headless Browser
         id: check_site
         run: |
-          STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
-            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9" \
-            https://www.cinepolis.com/in)
-          
-          echo "STATUS=$STATUS_CODE" >> $GITHUB_OUTPUT
-          echo "Website check returned Status Code: $STATUS_CODE"
+          node <<'EOF'
+          const puppeteer = require('puppeteer');
 
-      # Step 2: Telegram alert if DOWN
+          (async () => {
+            let status = 'DOWN';
+            let statusCode = '0';
+            try {
+              const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+              const page = await browser.newPage();
+              const response = await page.goto('https://www.cinepolis.com/in', { waitUntil: 'networkidle2', timeout: 30000 });
+              if (response) {
+                statusCode = response.status();
+                if (statusCode === 200) status = 'UP';
+              }
+              await browser.close();
+            } catch (err) {
+              console.log('Error accessing site:', err.message);
+            }
+
+            console.log(`::set-output name=STATUS::${status}`);
+            console.log(`::set-output name=STATUS_CODE::${statusCode}`);
+          })();
+          EOF
+
       - name: Telegram Alert - DOWN
-        if: ${{ steps.check_site.outputs.STATUS != '200' }}
+        if: ${{ steps.check_site.outputs.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          STATUS_CODE="${{ steps.check_site.outputs.STATUS }}"
+          STATUS_CODE="${{ steps.check_site.outputs.STATUS_CODE }}"
           
-          MSG="🚨 *Cinepolis Website DOWN!* 🚨\n*URL:* https://www.cinepolis.com/in\n*Status Code:* $STATUS_CODE\n*Repo:* ${{ github.repository }}"
+          MSG="🚨 *Cinepolis Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* $STATUS_CODE%0A*Repo:* ${{ github.repository }}"
 
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
-            -d text="$MSG" \
+            --data-urlencode "text=$MSG" \
             -d parse_mode="Markdown" || true
 
-      # Step 3: Update status.json and commit only if changed
       - name: Update status.json and Commit
         run: |
           TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           SITE_STATUS="${{ steps.check_site.outputs.STATUS }}"
+          STATUS_CODE="${{ steps.check_site.outputs.STATUS_CODE }}"
           
-          if [ "$SITE_STATUS" = "200" ]; then
-            STATUS="UP"
-          else
-            STATUS="DOWN"
-          fi
-          
-          # Generate JSON safely using echo
-          JSON_CONTENT=$(printf '{\n  "url": "https://www.cinepolis.com/in",\n  "status": "%s",\n  "status_code": "%s",\n  "checked_at": "%s"\n}' "$STATUS" "$SITE_STATUS" "$TIME_NOW")
+          JSON_CONTENT=$(printf '{\n  "url": "https://www.cinepolis.com/in",\n  "status": "%s",\n  "status_code": "%s",\n  "checked_at": "%s"\n}' "$SITE_STATUS" "$STATUS_CODE" "$TIME_NOW")
           echo "$JSON_CONTENT" > status.json
 
           git config user.name "GitHub Actions"
@@ -66,7 +83,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "status.json has no changes. Skipping commit/push."
           else
-            git commit -m "Uptime Check: $STATUS ($SITE_STATUS)"
+            git commit -m "Uptime Check: $SITE_STATUS ($STATUS_CODE)"
             git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
             echo "Successfully committed and pushed status.json."
-          fi
