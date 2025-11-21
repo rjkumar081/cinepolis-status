@@ -1,6 +1,1 @@
-{
-  "url": "https://www.cinepolis.com/in",
-  "status": "DOWN",
-  "status_code": "403",
-  "checked_at": "2025-11-21 05:04:09 UTC"
-}
+{"status":"DOWN","status_code":301,"response_time":0.083553}
