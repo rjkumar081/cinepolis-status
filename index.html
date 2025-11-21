@@ -18,12 +18,8 @@
       font-size: 2rem;
       margin: 20px 0;
     }
-    .up {
-      color: #4caf50;
-    }
-    .down {
-      color: #f44336;
-    }
+    .up { color: #4caf50; }
+    .down { color: #f44336; }
     .time {
       font-size: 1rem;
       margin-top: 10px;
@@ -58,7 +54,7 @@
         statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
         statusEl.className = isUp ? 'status up' : 'status down';
 
-        const indiaTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+        const indiaTime = new Date(data.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
         timeEl.textContent = `Last checked: ${indiaTime}`;
       } catch (err) {
         statusEl.textContent = '❌ Error loading status';
@@ -68,7 +64,7 @@
       }
     }
 
-    // Load status immediately
+    // Load immediately
     loadStatus();
 
     // Auto refresh every 3 minutes
