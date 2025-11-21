@@ -2,7 +2,7 @@ name: Cinepolis Uptime Check
 
 on:
   schedule:
-    - cron: "* * * * *"   # every 1 minute
+    - cron: "* * * * *"   # every minute
   workflow_dispatch:
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
             -d text="$MSG" \
             -d parse_mode="Markdown" || true
 
-      # Step 3: Update status.json and commit
+      # Step 3: Update status.json and commit only if changed
       - name: Update status.json and Commit
         run: |
           TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -54,15 +54,9 @@ jobs:
             STATUS="DOWN"
           fi
           
-          # Create valid JSON safely
-          cat <<'EOF' > status.json
-{
-  "url": "'"https://www.cinepolis.com/in"'",
-  "status": "'"$STATUS"'",
-  "status_code": "'"$SITE_STATUS"'",
-  "checked_at": "'"$TIME_NOW"'"
-}
-EOF
+          # Generate JSON safely using echo
+          JSON_CONTENT=$(printf '{\n  "url": "https://www.cinepolis.com/in",\n  "status": "%s",\n  "status_code": "%s",\n  "checked_at": "%s"\n}' "$STATUS" "$SITE_STATUS" "$TIME_NOW")
+          echo "$JSON_CONTENT" > status.json
 
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
