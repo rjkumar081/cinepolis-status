@@ -1,124 +1,24 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Cinepolis Status</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #121212;
-      color: #ffffff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .status {
-      font-size: 2rem;
-      margin: 20px 0;
-    }
-    .up { color: #4caf50; }
-    .down { color: #f44336; }
-    .time {
-      font-size: 1rem;
-      margin-top: 10px;
-      color: #bbbbbb;
-    }
-    button {
-      margin-top: 20px;
-      padding: 8px 16px;
-      font-size: 1rem;
-      cursor: pointer;
-    }
-    table {
-      margin-top: 20px;
-      border-collapse: collapse;
-      color: #fff;
-    }
-    th, td {
-      padding: 6px 12px;
-      border: 1px solid #444;
-    }
-    th {
-      background-color: #222;
-    }
-  </style>
-</head>
-<body>
-  <h1>Cinepolis India Website Status</h1>
-  <div id="status" class="status">Loading...</div>
-  <div id="time" class="time"></div>
-  <button onclick="loadStatus()">Refresh Now</button>
+async function loadStatus() {
+  const statusEl = document.getElementById('status');
+  const timeEl = document.getElementById('time');
+  statusEl.textContent = 'Loading...';
 
-  <h2>Last 10 Checks</h2>
-  <table id="logTable">
-    <thead>
-      <tr>
-        <th>Checked At (IST)</th>
-        <th>Status</th>
-        <th>Status Code</th>
-        <th>Response Time (ms)</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  try {
+    // Absolute path for GitHub Pages
+    const res = await fetch('/cinepolis-status/status.json?' + new Date().getTime());
+    if (!res.ok) throw new Error('Failed to fetch status.json');
 
-  <script>
-    async function loadStatus() {
-      const statusEl = document.getElementById('status');
-      const timeEl = document.getElementById('time');
-      const tableBody = document.querySelector('#logTable tbody');
-      statusEl.textContent = 'Loading...';
-      tableBody.innerHTML = '';
+    const log = await res.json();
+    const latest = log[log.length - 1];
+    const isUp = latest.status === 'UP';
+    statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
+    statusEl.className = isUp ? 'status up' : 'status down';
 
-      try {
-        const res = await fetch('status.json?' + new Date().getTime()); // cache bypass
-        if (!res.ok) throw new Error('Failed to fetch status.json');
-
-        const log = await res.json();
-        if (!Array.isArray(log) || log.length === 0) {
-          statusEl.textContent = '❌ No data available';
-          return;
-        }
-
-        // Latest status
-        const latest = log[log.length - 1];
-        const isUp = latest.status === 'UP';
-        statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
-        statusEl.className = isUp ? 'status up' : 'status down';
-
-        // India Time
-        const indiaTime = new Date(latest.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-        timeEl.textContent = `Last checked: ${indiaTime}`;
-
-        // Show last 10 logs
-        const lastLogs = log.slice(-10).reverse();
-        lastLogs.forEach(entry => {
-          const tr = document.createElement('tr');
-          const checkedAt = new Date(entry.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-          tr.innerHTML = `
-            <td>${checkedAt}</td>
-            <td>${entry.status}</td>
-            <td>${entry.status_code}</td>
-            <td>${entry.response_time}</td>
-          `;
-          tableBody.appendChild(tr);
-        });
-
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = '❌ Error loading status';
-        statusEl.className = 'status down';
-        timeEl.textContent = '';
-      }
-    }
-
-    // Load immediately
-    loadStatus();
-
-    // Auto-refresh every 3 minutes
-    setInterval(loadStatus, 3 * 60 * 1000);
-  </script>
-</body>
-</html>
+    const indiaTime = new Date(latest.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    timeEl.textContent = `Last checked: ${indiaTime}`;
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '❌ Error loading status';
+    statusEl.className = 'status down';
+  }
+}
