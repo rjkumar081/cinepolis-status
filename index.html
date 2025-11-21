@@ -1,127 +1,194 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cinepolis Website Status Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cinepolis Uptime Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f0f2f5;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-
-    h1 {
-      margin-bottom: 20px;
-    }
-
-    .dashboard {
-      background: #fff;
-      padding: 25px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      width: 360px;
-      text-align: center;
-    }
-
-    .status {
-      font-size: 2em;
-      margin-bottom: 10px;
-    }
-    .up { color: green; }
-    .down { color: red; }
-
-    .info { margin: 5px 0; color: #555; font-size: 0.95em; }
-
-    canvas {
-      margin-top: 20px;
-      max-width: 100%;
-    }
+    :root{--bg:#f6f8fb;--card:#fff;--ok:#16a34a;--down:#ef4444;--muted:#6b7280}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0;background:linear-gradient(180deg,#f8fafc, #eef2ff);color:#0f172a}
+    .wrap{max-width:1100px;margin:28px auto;padding:18px}
+    header{display:flex;align-items:center;gap:16px}
+    header img{width:72px;height:72px;border-radius:8px;object-fit:cover}
+    h1{font-size:20px;margin:0}
+    p.sub{margin:0;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1fr 340px;gap:18px;margin-top:18px}
+    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(12,18,33,0.06)}
+    .status-big{display:flex;align-items:center;gap:12px}
+    .dot{width:14px;height:14px;border-radius:50%}
+    .up{background:var(--ok)}
+    .down{background:var(--down)}
+    .kpi{display:flex;gap:12px;margin-top:12px}
+    .k{flex:1}
+    .k strong{display:block;font-size:20px}
+    .small{color:var(--muted);font-size:13px}
+    ul.log{list-style:none;padding:0;margin:8px 0 0 0;max-height:360px;overflow:auto}
+    ul.log li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9}
+    .chart-wrap{height:180px}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{background:#111827;color:#fff;border:none;padding:8px 10px;border-radius:8px;cursor:pointer}
   </style>
 </head>
 <body>
-  <h1>Cinepolis Website Status</h1>
-  <div class="dashboard">
-    <div class="status" id="status">Loading...</div>
-    <div class="info" id="lastChecked"></div>
-    <div class="info" id="responseTime"></div>
-    <div class="info" id="uptimePercent"></div>
-    <canvas id="responseChart" height="200"></canvas>
+  <div class="wrap">
+    <header>
+      <img src="/mnt/data/06b72e77-5f79-4b7e-8d14-d7084ac6b63f.png" alt="logo" />
+      <div>
+        <h1>Cinepolis Uptime Dashboard</h1>
+        <p class="sub">Live monitor — reads <code>public/status.json</code></p>
+      </div>
+      <div style="margin-left:auto" class="controls">
+        <button id="refresh">Refresh</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="status-big">
+            <div id="statusDot" class="dot down"></div>
+            <div>
+              <div id="statusText" style="font-weight:700;font-size:18px">Unknown</div>
+              <div class="small">Last checked: <span id="lastChecked">-</span></div>
+            </div>
+          </div>
+
+          <div class="kpi">
+            <div class="k card-inner">
+              <div class="small">Response time</div>
+              <strong id="resp">- ms</strong>
+            </div>
+            <div class="k card-inner">
+              <div class="small">Uptime (window)</div>
+              <strong id="uptime">- %</strong>
+            </div>
+            <div class="k card-inner">
+              <div class="small">Status code</div>
+              <strong id="code">-</strong>
+            </div>
+          </div>
+
+          <div style="margin-top:12px" class="chart-wrap card-inner">
+            <canvas id="uptimeChart" width="600" height="180"></canvas>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="small">Recent checks</div>
+            <ul class="log" id="logList"></ul>
+          </div>
+        </div>
+
+        <div style="margin-top:12px" class="card">
+          <h3 style="margin:0 0 8px 0">Raw status.json preview</h3>
+          <pre id="raw" style="max-height:220px;overflow:auto;background:#0b1120;color:#e6eef8;padding:12px;border-radius:8px">-</pre>
+        </div>
+      </div>
+
+      <aside>
+        <div class="card">
+          <h3 style="margin:0 0 8px 0">Info</h3>
+          <p class="small">This dashboard loads the project's <code>public/status.json</code>. Deploy it to the same repo branch so the file is accessible from the site root. Default retention window is 7 days.</p>
+
+          <hr />
+          <p class="small"><strong>How to use</strong></p>
+          <ol class="small">
+            <li>Ensure your workflow writes <code>public/status.json</code>.</li>
+            <li>Serve this dashboard from the same repo (GitHub Pages / static host).</li>
+            <li>Click Refresh to pull latest data.</li>
+          </ol>
+        </div>
+      </aside>
+    </div>
+
+    <footer>
+      <small>Generated dashboard • Live refresh reads status.json • Let me know if you want different colours or CSV export</small>
+    </footer>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const ctx = document.getElementById('responseChart').getContext('2d');
-    let responseChart;
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const lastChecked = document.getElementById('lastChecked');
+    const resp = document.getElementById('resp');
+    const uptime = document.getElementById('uptime');
+    const code = document.getElementById('code');
+    const logList = document.getElementById('logList');
+    const raw = document.getElementById('raw');
+    const refresh = document.getElementById('refresh');
 
-    async function loadStatus() {
+    const ctx = document.getElementById('uptimeChart').getContext('2d');
+    let chart;
+
+    async function loadData() {
       try {
-        const res = await fetch('status.json');
-        const log = await res.json();
+        const r = await fetch('/public/status.json', {cache: 'no-store'});
+        if (!r.ok) throw new Error('status.json not found');
+        const data = await r.json();
 
-        if (!Array.isArray(log) || log.length === 0) {
-          document.getElementById('status').textContent = 'No data';
+        raw.textContent = JSON.stringify(data, null, 2);
+
+        if (!Array.isArray(data) || data.length === 0) {
+          statusText.textContent = 'No data';
           return;
         }
 
-        const latest = log[log.length - 1];
-        const statusEl = document.getElementById('status');
-        statusEl.textContent = latest.status === 'UP' ? 'Website is UP ✅' : 'Website is DOWN ❌';
-        statusEl.className = latest.status === 'UP' ? 'status up' : 'status down';
+        const latest = data[data.length - 1];
+        statusText.textContent = latest.status;
+        lastChecked.textContent = new Date(latest.checked_at).toLocaleString();
+        resp.textContent = (latest.response_time || '-') + ' ms';
+        code.textContent = latest.status_code || '-';
 
-        document.getElementById('lastChecked').textContent = 'Last checked: ' + new Date(latest.checked_at).toLocaleString();
-        document.getElementById('responseTime').textContent = 'Response time: ' + latest.response_time + ' ms';
+        if (latest.status === 'UP') {
+          statusDot.classList.remove('down'); statusDot.classList.add('up');
+        } else { statusDot.classList.remove('up'); statusDot.classList.add('down'); }
 
-        const upCount = log.filter(e => e.status === 'UP').length;
-        const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
-        document.getElementById('uptimePercent').textContent = 'Uptime (last ' + log.length + ' checks): ' + uptimePercent + '%';
+        // uptime percent calculated from file
+        const upCount = data.filter(x => x.status === 'UP').length;
+        const perc = ((upCount / data.length) * 100).toFixed(2);
+        uptime.textContent = perc + ' %';
 
-        // Prepare chart data
-        const labels = log.map(e => new Date(e.checked_at).toLocaleTimeString());
-        const data = log.map(e => e.response_time);
-        const backgroundColors = log.map(e => e.status === 'UP' ? 'rgba(0, 200, 0, 0.5)' : 'rgba(200,0,0,0.5)');
+        // recent list
+        logList.innerHTML = '';
+        const recent = data.slice(-30).reverse();
+        recent.forEach(e => {
+          const li = document.createElement('li');
+          li.innerHTML = `<div><strong>${e.status}</strong> <span class="small">${new Date(e.checked_at).toLocaleString()}</span></div><div>${e.response_time}ms</div>`;
+          logList.appendChild(li);
+        });
 
-        if(responseChart) {
-          responseChart.data.labels = labels;
-          responseChart.data.datasets[0].data = data;
-          responseChart.data.datasets[0].backgroundColor = backgroundColors;
-          responseChart.update();
-        } else {
-          responseChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-              labels: labels,
-              datasets: [{
-                label: 'Response Time (ms)',
-                data: data,
-                backgroundColor: backgroundColors
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                legend: { display: false },
-                tooltip: { mode: 'index', intersect: false }
-              },
-              scales: {
-                x: { ticks: { autoSkip: true, maxTicksLimit: 12 } },
-                y: { beginAtZero: true }
-              }
-            }
-          });
-        }
+        // chart data
+        const labels = data.slice(-48).map(d => new Date(d.checked_at).toLocaleTimeString());
+        const values = data.slice(-48).map(d => d.status === 'UP' ? 1 : 0);
+
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'UP (1) / DOWN (0)',
+              data: values,
+              fill: true,
+              tension: 0.2
+            }]
+          },
+          options: {
+            scales: { y: { min:0, max:1, ticks:{stepSize:1} } },
+            plugins: { legend: { display: false } }
+          }
+        });
+
       } catch (err) {
-        document.getElementById('status').textContent = 'Error loading data';
-        console.error(err);
+        raw.textContent = 'Error: ' + err.message;
+        statusText.textContent = 'Error';
       }
     }
 
-    loadStatus();
-    // Auto-refresh every 1 minute
-    setInterval(loadStatus, 60000);
+    refresh.addEventListener('click', loadData);
+    loadData();
   </script>
 </body>
 </html>
