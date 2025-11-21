@@ -1,34 +1,117 @@
-- name: Check Cinepolis Website in Headless Browser
-  id: check_site
-  run: |
-    node <<'EOF'
-    const puppeteer = require('puppeteer');
+name: Cinepolis Uptime Check
 
-    (async () => {
-      let status = 'DOWN';
-      let statusCode = '0';
-      try {
-        const browser = await puppeteer.launch({ 
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
-        });
-        const page = await browser.newPage();
-        const response = await page.goto('https://www.cinepolis.com/in', { waitUntil: 'networkidle2', timeout: 60000 });
-        if (response) {
-          statusCode = response.status();
-          if (statusCode === 200) status = 'UP';
-        }
-        await browser.close();
-      } catch (err) {
-        console.error('Error accessing site:', err.message);
-      }
+on:
+  schedule:
+    - cron: "* * * * *"   # every minute
+  workflow_dispatch:
 
-      // write outputs using Environment Files
-      const fs = require('fs');
-      fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-      fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+jobs:
+  uptime:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
 
-      // exit 0 so workflow doesn't fail
-      process.exit(0);
-    })();
-    EOF
+    steps:
+      # Step 1: Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      # Step 3: Install Puppeteer
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install puppeteer
+
+      # Step 4: Check Cinepolis Website in Headless Browser
+      - name: Check Website
+        id: check_site
+        run: |
+          node <<'EOF'
+          const puppeteer = require('puppeteer');
+          const fs = require('fs');
+
+          (async () => {
+            let status = 'DOWN';
+            let statusCode = '0';
+            try {
+              const browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+              });
+              const page = await browser.newPage();
+              const response = await page.goto('https://www.cinepolis.com/in', { waitUntil: 'networkidle2', timeout: 60000 });
+              if (response) {
+                statusCode = response.status();
+                if (statusCode === 200) status = 'UP';
+              }
+              await browser.close();
+            } catch (err) {
+              console.error('Error accessing site:', err.message);
+            }
+
+            // Save outputs using Environment File
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+            process.exit(0);
+          })();
+          EOF
+
+      # Step 5: Telegram Alert - DOWN
+      - name: Telegram Alert - DOWN
+        if: ${{ env.STATUS != 'UP' }}
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          STATUS_CODE="${{ env.STATUS_CODE }}"
+          
+          MSG="🚨 *Cinepolis Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* $STATUS_CODE%0A*Repo:* ${{ github.repository }}"
+
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            --data-urlencode "text=$MSG" \
+            -d parse_mode="Markdown" || true
+
+      # Step 6: Telegram Alert - UP (only if previously DOWN)
+      - name: Telegram Alert - UP
+        if: ${{ env.STATUS == 'UP' }}
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+
+          # Check previous status from status.json (if exists)
+          PREV_STATUS=$(jq -r '.status // empty' status.json || echo "")
+          
+          if [ "$PREV_STATUS" != "UP" ]; then
+            MSG="✅ *Cinepolis Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Repo:* ${{ github.repository }}"
+            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              --data-urlencode "text=$MSG" \
+              -d parse_mode="Markdown" || true
+          fi
+
+      # Step 7: Update status.json and commit changes
+      - name: Update status.json and Commit
+        run: |
+          TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          SITE_STATUS="${{ env.STATUS }}"
+          STATUS_CODE="${{ env.STATUS_CODE }}"
+          
+          JSON_CONTENT=$(printf '{\n  "url": "https://www.cinepolis.com/in",\n  "status": "%s",\n  "status_code": "%s",\n  "checked_at": "%s"\n}' "$SITE_STATUS" "$STATUS_CODE" "$TIME_NOW")
+          echo "$JSON_CONTENT" > status.json
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json
+
+          if git diff --staged --quiet; then
+            echo "status.json has no changes. Skipping commit/push."
+          else
+            git commit -m "Uptime Check: $SITE_STATUS ($STATUS_CODE)"
+            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
+            echo "Successfully committed and pushed status.json."
