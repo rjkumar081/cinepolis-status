@@ -2,7 +2,7 @@ name: Cinepolis Uptime Check
 
 on:
   schedule:
-    - cron: "* * * * *"  # every minute
+    - cron: "* * * * *"
   workflow_dispatch:
 
 jobs:
@@ -47,17 +47,18 @@ jobs:
               console.log('Error accessing site:', err.message);
             }
 
-            console.log(`::set-output name=STATUS::${status}`);
-            console.log(`::set-output name=STATUS_CODE::${statusCode}`);
+            // write outputs using Environment Files
+            require('fs').appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+            require('fs').appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
           })();
           EOF
 
       - name: Telegram Alert - DOWN
-        if: ${{ steps.check_site.outputs.STATUS != 'UP' }}
+        if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          STATUS_CODE="${{ steps.check_site.outputs.STATUS_CODE }}"
+          STATUS_CODE="${{ env.STATUS_CODE }}"
           
           MSG="🚨 *Cinepolis Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* $STATUS_CODE%0A*Repo:* ${{ github.repository }}"
 
@@ -69,8 +70,8 @@ jobs:
       - name: Update status.json and Commit
         run: |
           TIME_NOW=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          SITE_STATUS="${{ steps.check_site.outputs.STATUS }}"
-          STATUS_CODE="${{ steps.check_site.outputs.STATUS_CODE }}"
+          SITE_STATUS="${{ env.STATUS }}"
+          STATUS_CODE="${{ env.STATUS_CODE }}"
           
           JSON_CONTENT=$(printf '{\n  "url": "https://www.cinepolis.com/in",\n  "status": "%s",\n  "status_code": "%s",\n  "checked_at": "%s"\n}' "$SITE_STATUS" "$STATUS_CODE" "$TIME_NOW")
           echo "$JSON_CONTENT" > status.json
