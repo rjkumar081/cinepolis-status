@@ -123,13 +123,14 @@ jobs:
               -d parse_mode="Markdown"
           fi
 
-      - name: Commit status.json
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add status.json
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
-            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
+     - name: Commit status.json
+  run: |
+    git config user.name "GitHub Actions"
+    git config user.email "actions@github.com"
+    git add status.json
+    if git diff --staged --quiet; then
+      echo "No changes to commit."
+    else
+      git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
+      git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
+    fi
