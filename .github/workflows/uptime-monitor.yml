@@ -41,17 +41,21 @@ jobs:
           (async () => {
             let status = 'DOWN';
 try {
+  const start = Date.now();
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
   });
   const page = await browser.newPage();
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  status = 'UP';
+  const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
+  responseTime = Date.now() - start;
+  if (res && res.status() === 200) status = 'UP';
+  statusCode = res ? res.status() : 0;
   await browser.close();
 } catch (err) {
   console.error('Error accessing site:', err.message);
 }
+
 
 
             // Ensure logs folder exists
