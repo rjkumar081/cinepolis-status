@@ -36,7 +36,7 @@ jobs:
           const ROOT_STATUS_FILE = path.join('public','status.json');
           const LOG_FOLDER = path.join('public','logs');
           const URL = 'https://www.cinepolis.com/in';
-          const MAX_LOG = 1440;
+const LOG_RETENTION_HOURS = 24 * 7;   // keep 7 days
 
           (async () => {
             let status = 'DOWN';
@@ -78,7 +78,11 @@ jobs:
             log.push(entry);
 
             // Keep last MAX_LOG entries
-            if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+const cutoffTime = Date.now() - LOG_RETENTION_HOURS * 60 * 60 * 1000;
+
+log = log.filter(e => {
+  return new Date(e.checked_at).getTime() >= cutoffTime;
+});
 
             // Calculate uptime %
             const upCount = log.filter(e => e.status === 'UP').length;
