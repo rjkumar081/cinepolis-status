@@ -34,7 +34,7 @@ jobs:
 
           const STATUS_FILE = 'status.json';
           const URL = 'https://www.cinepolis.com/in';
-          const MAX_LOG = 1440; // 24 hours of 1-min checks
+          const MAX_LOG = 1440; // last 24h of checks
 
           (async () => {
             let status = 'DOWN';
@@ -57,13 +57,20 @@ jobs:
               console.error('Error accessing site:', err.message);
             }
 
-            // Read existing status.json
+            // Read existing status.json safely
             let log = [];
             if (fs.existsSync(STATUS_FILE)) {
-              log = JSON.parse(fs.readFileSync(STATUS_FILE));
+              try {
+                const content = fs.readFileSync(STATUS_FILE, 'utf8');
+                const parsed = JSON.parse(content);
+                log = Array.isArray(parsed) ? parsed : [];
+              } catch (err) {
+                console.error("Invalid JSON, starting fresh log.");
+                log = [];
+              }
             }
 
-            // Add new check
+            // Add new entry
             log.push({
               checked_at: new Date().toISOString(),
               status: status,
