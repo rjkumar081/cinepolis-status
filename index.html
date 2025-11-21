@@ -1,58 +1,78 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Cinepolis Status Dashboard</title>
-<style>
-  body { font-family: Arial; background: #111; color: #fff; text-align: center; }
-  .status { font-size: 2em; margin: 20px; }
-  .UP { color: #0f0; }
-  .DOWN { color: #f00; }
-  table { margin: 0 auto; border-collapse: collapse; width: 80%; }
-  th, td { border: 1px solid #fff; padding: 8px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Cinepolis Status</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .status {
+      font-size: 2rem;
+      margin: 20px 0;
+    }
+    .up {
+      color: #4caf50;
+    }
+    .down {
+      color: #f44336;
+    }
+    .time {
+      font-size: 1rem;
+      margin-top: 10px;
+      color: #bbbbbb;
+    }
+    button {
+      margin-top: 20px;
+      padding: 8px 16px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-<h1>Cinepolis Website Status</h1>
-<div id="status" class="status">Loading...</div>
-<table id="logTable">
-  <thead>
-    <tr><th>Time</th><th>Status</th><th>Code</th></tr>
-  </thead>
-  <tbody></tbody>
-</table>
+  <h1>Cinepolis India Website Status</h1>
+  <div id="status" class="status">Loading...</div>
+  <div id="time" class="time"></div>
+  <button onclick="loadStatus()">Refresh Now</button>
 
-<script>
-const maxLogs = 20;
-let logs = [];
+  <script>
+    async function loadStatus() {
+      const statusEl = document.getElementById('status');
+      const timeEl = document.getElementById('time');
+      statusEl.textContent = 'Loading...';
 
-async function fetchStatus() {
-  try {
-    const res = await fetch('status.json?' + new Date().getTime());
-    const data = await res.json();
-    const statusEl = document.getElementById('status');
-    statusEl.textContent = data.status;
-    statusEl.className = 'status ' + data.status;
+      try {
+        const res = await fetch('status.json?' + new Date().getTime()); // cache bypass
+        if (!res.ok) throw new Error('Network response was not ok');
 
-    // Update logs
-    logs.unshift({time: data.checked_at, status: data.status, code: data.status_code});
-    if (logs.length > maxLogs) logs.pop();
+        const data = await res.json();
+        const isUp = data.status === 'up';
+        statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
+        statusEl.className = isUp ? 'status up' : 'status down';
 
-    const tbody = document.querySelector('#logTable tbody');
-    tbody.innerHTML = '';
-    logs.forEach(log => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${log.time}</td><td>${log.status}</td><td>${log.code}</td>`;
-      tbody.appendChild(tr);
-    });
-  } catch(err) {
-    console.error(err);
-  }
-}
+        const indiaTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+        timeEl.textContent = `Last checked: ${indiaTime}`;
+      } catch (err) {
+        statusEl.textContent = '❌ Error loading status';
+        statusEl.className = 'status down';
+        timeEl.textContent = '';
+        console.error(err);
+      }
+    }
 
-// Auto-refresh every 5 seconds
-fetchStatus();
-setInterval(fetchStatus, 5000);
-</script>
+    // Load status immediately
+    loadStatus();
+
+    // Auto refresh every 3 minutes
+    setInterval(loadStatus, 3 * 60 * 1000);
+  </script>
 </body>
 </html>
