@@ -2,8 +2,9 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "* * * * *"   # every minute
+    - cron: "*/3 * * * *"   # every 3 minutes
   workflow_dispatch:
+
 
 jobs:
   monitor:
