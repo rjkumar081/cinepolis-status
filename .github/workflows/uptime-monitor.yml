@@ -1,90 +1,113 @@
-- name: Check Website Status and Update Status.json
-  id: check_site
-  run: |
-    node <<'EOF'
-    const puppeteer = require('puppeteer');
-    const fs = require('fs-extra');
-    const path = require('path');
+name: Cinepolis Uptime Monitor
 
-    const ROOT_STATUS_FILE = path.join('public','status.json');  
-    const LOG_FOLDER = path.join('public','logs');              
-    const URL = 'https://www.cinepolis.com/in';
-    const MAX_LOG = 1440;
+on:
+  schedule:
+    - cron: "*/3 * * * *"   # every 3 minutes
+  workflow_dispatch:
 
-    (async () => {
-      let status = 'DOWN';
-      let statusCode = 0;
-      let responseTime = 0;
+jobs:
+  monitor:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
 
-      try {
-        const start = Date.now();
-        const browser = await puppeteer.launch({
-          headless: true,
-          args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
-        });
-        const page = await browser.newPage();
-        const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
-        responseTime = Date.now() - start;
-        if (res && res.status() >= 200 && res.status() < 400) status = 'UP';
-        statusCode = res ? res.status() : 0;
-        await browser.close();
-      } catch (err) {
-        console.error('Error accessing site:', err.message);
-      }
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      await fs.ensureDir(LOG_FOLDER);
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
 
-      let log = [];
-      if (await fs.pathExists(ROOT_STATUS_FILE)) {
-        try {
-          const content = await fs.readFile(ROOT_STATUS_FILE, 'utf8');
-          log = Array.isArray(JSON.parse(content)) ? JSON.parse(content) : [];
-        } catch {
-          log = [];
-        }
-      }
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install puppeteer fs-extra jq
 
-      const entry = {
-        checked_at: new Date().toISOString(),
-        status,
-        status_code: statusCode,
-        response_time: responseTime
-      };
-      log.push(entry);
-      if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+      - name: Check Website Status and Update Status.json
+        id: check_site
+        run: |
+          node <<'EOF'
+          const puppeteer = require('puppeteer');
+          const fs = require('fs-extra');
+          const path = require('path');
 
-      const upCount = log.filter(e => e.status === 'UP').length;
-      const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
+          const ROOT_STATUS_FILE = path.join('public','status.json');
+          const LOG_FOLDER = path.join('public','logs');
+          const URL = 'https://www.cinepolis.com/in';
+          const MAX_LOG = 1440;
 
-      await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-      await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+          (async () => {
+            let status = 'DOWN';
+            let statusCode = 0;
+            let responseTime = 0;
 
-      fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-      fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
-      fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
-      fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
-    })();
-    EOF
-- name: Telegram Alert - DOWN
-  if: ${{ env.STATUS != 'UP' }}
-  run: |
-    TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-    CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-    MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-    curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-      -d chat_id="$CHAT_ID" \
-      --data-urlencode "text=$MSG" \
-      -d parse_mode="Markdown"
+            try {
+              const start = Date.now();
+              const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+              const page = await browser.newPage();
+              const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
+              responseTime = Date.now() - start;
+              if (res && res.status() >= 200 && res.status() < 400) status = 'UP';
+              statusCode = res ? res.status() : 0;
+              await browser.close();
+            } catch (err) {
+              console.error('Error accessing site:', err.message);
+            }
 
-- name: Telegram Alert - UP (if previously DOWN)
-  if: ${{ env.STATUS == 'UP' }}
-  run: |
-    TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-    CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-    PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
-    if [ "$PREV_STATUS" != "UP" ]; then
-      MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-      curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-        -d chat_id="$CHAT_ID" \
-        --data-urlencode "text=$MSG" \
-        -d parse_mode="Markdown"
+            await fs.ensureDir(LOG_FOLDER);
+
+            let log = [];
+            if (await fs.pathExists(ROOT_STATUS_FILE)) {
+              try {
+                const content = await fs.readFile(ROOT_STATUS_FILE, 'utf8');
+                log = Array.isArray(JSON.parse(content)) ? JSON.parse(content) : [];
+              } catch { log = []; }
+            }
+
+            const entry = {
+              checked_at: new Date().toISOString(),
+              status,
+              status_code: statusCode,
+              response_time: responseTime
+            };
+            log.push(entry);
+            if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+
+            const upCount = log.filter(e => e.status === 'UP').length;
+            const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
+
+            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
+          })();
+          EOF
+
+      - name: Telegram Alert - DOWN
+        if: ${{ env.STATUS != 'UP' }}
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            --data-urlencode "text=$MSG" \
+            -d parse_mode="Markdown"
+
+      - name: Telegram Alert - UP (if previously DOWN)
+        if: ${{ env.STATUS == 'UP' }}
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
+          if [ "$PREV_STATUS" != "UP" ]; then
+            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              --data-urlencode "text=$MSG" \
+              -d parse_mode="Markdown"
