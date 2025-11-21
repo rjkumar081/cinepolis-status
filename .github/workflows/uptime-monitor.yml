@@ -30,13 +30,11 @@ jobs:
         run: |
           node <<'EOF'
           const puppeteer = require('puppeteer');
-          const fs = require('fs-extra');
-          const path = require('path');
+          const fs = require('fs');
 
-          const ROOT_STATUS_FILE = path.join('public','status.json');
-          const LOG_FOLDER = path.join('public','logs');
+          const STATUS_FILE = 'status.json';
           const URL = 'https://www.cinepolis.com/in';
-          const MAX_LOG = 1440;
+          const MAX_LOG = 1440; // last 24h of checks
 
           (async () => {
             let status = 'DOWN';
@@ -44,43 +42,53 @@ jobs:
             let responseTime = 0;
 
             try {
-              const start = Date.now();
-              const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+              const startTime = Date.now();
+              const browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
+              });
               const page = await browser.newPage();
-              const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
-              responseTime = Date.now() - start;
-              if (res && res.status() >= 200 && res.status() < 400) status = 'UP';
-              statusCode = res ? res.status() : 0;
+              const response = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
+              responseTime = Date.now() - startTime;
+              if (response && response.status() === 200) status = 'UP';
+              statusCode = response ? response.status() : 0;
               await browser.close();
             } catch (err) {
               console.error('Error accessing site:', err.message);
             }
 
-            await fs.ensureDir(LOG_FOLDER);
-
+            // Read existing status.json safely
             let log = [];
-            if (await fs.pathExists(ROOT_STATUS_FILE)) {
+            if (fs.existsSync(STATUS_FILE)) {
               try {
-                const content = await fs.readFile(ROOT_STATUS_FILE, 'utf8');
-                log = Array.isArray(JSON.parse(content)) ? JSON.parse(content) : [];
-              } catch { log = []; }
+                const content = fs.readFileSync(STATUS_FILE, 'utf8');
+                const parsed = JSON.parse(content);
+                log = Array.isArray(parsed) ? parsed : [];
+              } catch (err) {
+                console.error("Invalid JSON, starting fresh log.");
+                log = [];
+              }
             }
 
-            const entry = {
+            // Add new entry
+            log.push({
               checked_at: new Date().toISOString(),
-              status,
+              status: status,
               status_code: statusCode,
               response_time: responseTime
-            };
-            log.push(entry);
+            });
+
+            // Keep last MAX_LOG entries only
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
+            // Calculate uptime %
             const upCount = log.filter(e => e.status === 'UP').length;
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
-            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+            // Save log
+            fs.writeFileSync(STATUS_FILE, JSON.stringify(log, null, 2));
 
+            // Export variables
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
