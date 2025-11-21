@@ -3,66 +3,125 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Website Status</title>
+  <title>Cinepolis Website Status Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
+      background-color: #f0f2f5;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
-      height: 100vh;
-      background-color: #f0f0f0;
+      padding: 20px;
     }
-    .status {
-      text-align: center;
-      padding: 40px;
-      border-radius: 10px;
-      background-color: #fff;
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .dashboard {
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      width: 360px;
+      text-align: center;
     }
-    .status h1 {
+
+    .status {
       font-size: 2em;
       margin-bottom: 10px;
     }
-    .up {
-      color: green;
-    }
-    .down {
-      color: red;
-    }
-    .last-checked {
-      margin-top: 10px;
-      color: #555;
+    .up { color: green; }
+    .down { color: red; }
+
+    .info { margin: 5px 0; color: #555; font-size: 0.95em; }
+
+    canvas {
+      margin-top: 20px;
+      max-width: 100%;
     }
   </style>
 </head>
 <body>
-  <div class="status">
-    <h1 id="status">Loading...</h1>
-    <div class="last-checked" id="lastChecked"></div>
+  <h1>Cinepolis Website Status</h1>
+  <div class="dashboard">
+    <div class="status" id="status">Loading...</div>
+    <div class="info" id="lastChecked"></div>
+    <div class="info" id="responseTime"></div>
+    <div class="info" id="uptimePercent"></div>
+    <canvas id="responseChart" height="200"></canvas>
   </div>
 
   <script>
-    fetch('status.json')
-      .then(res => res.json())
-      .then(data => {
-        const statusEl = document.getElementById('status');
-        const lastCheckedEl = document.getElementById('lastChecked');
-        
-        if(data.status === 'UP') {
-          statusEl.textContent = 'Website is UP ✅';
-          statusEl.className = 'up';
-        } else {
-          statusEl.textContent = 'Website is DOWN ❌';
-          statusEl.className = 'down';
+    const ctx = document.getElementById('responseChart').getContext('2d');
+    let responseChart;
+
+    async function loadStatus() {
+      try {
+        const res = await fetch('status.json');
+        const log = await res.json();
+
+        if (!Array.isArray(log) || log.length === 0) {
+          document.getElementById('status').textContent = 'No data';
+          return;
         }
 
-        lastCheckedEl.textContent = 'Last checked: ' + data.lastChecked;
-      })
-      .catch(err => {
-        document.getElementById('status').textContent = 'Error loading status';
+        const latest = log[log.length - 1];
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = latest.status === 'UP' ? 'Website is UP ✅' : 'Website is DOWN ❌';
+        statusEl.className = latest.status === 'UP' ? 'status up' : 'status down';
+
+        document.getElementById('lastChecked').textContent = 'Last checked: ' + new Date(latest.checked_at).toLocaleString();
+        document.getElementById('responseTime').textContent = 'Response time: ' + latest.response_time + ' ms';
+
+        const upCount = log.filter(e => e.status === 'UP').length;
+        const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
+        document.getElementById('uptimePercent').textContent = 'Uptime (last ' + log.length + ' checks): ' + uptimePercent + '%';
+
+        // Prepare chart data
+        const labels = log.map(e => new Date(e.checked_at).toLocaleTimeString());
+        const data = log.map(e => e.response_time);
+        const backgroundColors = log.map(e => e.status === 'UP' ? 'rgba(0, 200, 0, 0.5)' : 'rgba(200,0,0,0.5)');
+
+        if(responseChart) {
+          responseChart.data.labels = labels;
+          responseChart.data.datasets[0].data = data;
+          responseChart.data.datasets[0].backgroundColor = backgroundColors;
+          responseChart.update();
+        } else {
+          responseChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: 'Response Time (ms)',
+                data: data,
+                backgroundColor: backgroundColors
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: { display: false },
+                tooltip: { mode: 'index', intersect: false }
+              },
+              scales: {
+                x: { ticks: { autoSkip: true, maxTicksLimit: 12 } },
+                y: { beginAtZero: true }
+              }
+            }
+          });
+        }
+      } catch (err) {
+        document.getElementById('status').textContent = 'Error loading data';
         console.error(err);
-      });
+      }
+    }
+
+    loadStatus();
+    // Auto-refresh every 1 minute
+    setInterval(loadStatus, 60000);
   </script>
 </body>
 </html>
