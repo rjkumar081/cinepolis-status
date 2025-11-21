@@ -1,138 +1,80 @@
-name: Cinepolis Uptime Monitor
-
-on:
-  schedule:
-    - cron: "*/3 * * * *"   # every 3 minutes
-  workflow_dispatch:
-
-jobs:
-  monitor:
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: |
-          npm init -y
-          npm install puppeteer jq
-
-      - name: Check Website Status
-        id: check_site
-        run: |
-          node <<'EOF'
+- name: Check Website Status for 3 minutes
+  run: |
+    node <<'EOF'
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const axios = require('axios');
 
 const STATUS_FILE = 'status.json';
 const URL = 'https://www.cinepolis.com/in';
-const MAX_LOG = 1440; // last 24h of checks
+const MAX_LOG = 1440; // last 24h
+const DURATION_MS = 3 * 60 * 1000; // 3 minutes
 
 (async () => {
-  try {
+  let log = [];
+  const startTime = Date.now();
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
+  });
+  const page = await browser.newPage();
+
+  while (Date.now() - startTime < DURATION_MS) {
     let status = 'DOWN';
     let statusCode = 0;
     let responseTime = 0;
 
     try {
-      const startTime = Date.now();
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
-      });
-      const page = await browser.newPage();
+      const reqStart = Date.now();
       const response = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
-      responseTime = Date.now() - startTime;
+      responseTime = Date.now() - reqStart;
       if (response && response.status() === 200) status = 'UP';
       statusCode = response ? response.status() : 0;
-      await browser.close();
     } catch (err) {
       console.error('Error accessing site:', err.message);
     }
 
-    // Read existing status.json safely
-    let log = [];
-    if (fs.existsSync(STATUS_FILE)) {
-      try {
-        const content = fs.readFileSync(STATUS_FILE, 'utf8');
-        const parsed = JSON.parse(content);
-        log = Array.isArray(parsed) ? parsed : [];
-      } catch (err) {
-        console.error("Invalid JSON, starting fresh log.");
-        log = [];
-      }
-    }
-
-    // Add new entry
+    // Add entry
     log.push({
       checked_at: new Date().toISOString(),
-      status: status,
+      status,
       status_code: statusCode,
       response_time: responseTime
     });
 
-    // Keep last MAX_LOG entries only
-    if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
-
-    // Calculate uptime %
-    const upCount = log.filter(e => e.status === 'UP').length;
-    const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
-
-    // Save log
-    fs.writeFileSync(STATUS_FILE, JSON.stringify(log, null, 2));
-
-    // Export variables to GitHub Actions
-    fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-    fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
-    fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
-    fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
-
-  } catch (err) {
-    console.error("Fatal error:", err);
-    process.exit(0); // prevent workflow from failing
+    // Wait 10 seconds before next check inside 3 minutes
+    await new Promise(res => setTimeout(res, 10000));
   }
+
+  await browser.close();
+
+  // Save log
+  let oldLog = [];
+  if (fs.existsSync(STATUS_FILE)) {
+    try {
+      oldLog = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
+    } catch {}
+  }
+  const combinedLog = [...oldLog, ...log].slice(-MAX_LOG);
+  fs.writeFileSync(STATUS_FILE, JSON.stringify(combinedLog, null, 2));
+
+  // Calculate uptime %
+  const upCount = combinedLog.filter(e => e.status === 'UP').length;
+  const uptimePercent = ((upCount / combinedLog.length) * 100).toFixed(2);
+
+  // Send Telegram alert
+  const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+  const lastStatus = log[log.length - 1];
+
+  const MSG = lastStatus.status === 'UP'
+    ? `✅ *Website is UP!* ✅%0A*URL:* ${URL}%0A*Response Time:* ${lastStatus.response_time}ms%0A*Uptime (24h):* ${uptimePercent}%`
+    : `🚨 *Website DOWN!* 🚨%0A*URL:* ${URL}%0A*Status Code:* ${lastStatus.status_code}%0A*Response Time:* ${lastStatus.response_time}ms%0A*Uptime (24h):* ${uptimePercent}%`;
+
+  await axios.post(`https://api.telegram.org/bot${TOKEN}/sendMessage`, null, {
+    params: { chat_id: CHAT_ID, text: MSG, parse_mode: 'Markdown' }
+  });
+
 })();
 EOF
-
-      - name: Telegram Alert - DOWN
-        if: ${{ env.STATUS != 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
-
-      - name: Telegram Alert - UP (if previously DOWN)
-        if: ${{ env.STATUS == 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' status.json || echo "")
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              --data-urlencode "text=$MSG" \
-              -d parse_mode="Markdown"
-
-      - name: Commit status.json
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add status.json
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
-            git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
