@@ -2,14 +2,12 @@ name: Cinepolis Uptime Check
 
 on:
   schedule:
-    # Runs every 1 minute now
-    - cron: "* * * * *" 
-  # Allows manual execution from the GitHub Actions tab
+    # Runs every 1 minute
+    - cron: "* * * * *"
   workflow_dispatch:
 
-jobs
+jobs:
   uptime:
-    # Set permissions to allow the GITHUB_TOKEN to push changes
     permissions: 
       contents: write
     runs-on: ubuntu-latest
@@ -22,19 +20,17 @@ jobs
       - name: Check Cinepolis Website Status
         id: check_site
         run: |
-          # Use curl to get only the HTTP status code with browser headers
           STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
             -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
             -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9" \
             https://www.cinepolis.com/in)
           
-          # Set the status code as an output variable for later steps
           echo "STATUS=$STATUS_CODE" >> $GITHUB_OUTPUT
           echo "Website check returned Status Code: $STATUS_CODE"
 
       # Step 2: Telegram alert if DOWN (Status is not 200)
       - name: Telegram Alert - DOWN
-        if: steps.check_site.outputs.STATUS != '200'
+        if: ${{ steps.check_site.outputs.STATUS != '200' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
@@ -42,11 +38,10 @@ jobs
           
           MSG="🚨 *Cinepolis Website DOWN!* 🚨\n*URL:* https://www.cinepolis.com/in\n*Status Code:* $STATUS_CODE\n*Repo:* ${{ github.repository }}"
 
-          # Use || true to prevent the workflow from failing if the Telegram API call fails
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             -d text="$MSG" \
-            -d parse_mode="Markdown" || true 
+            -d parse_mode="Markdown" || true
 
       # Step 3: Update status.json file and push to repo
       - name: Update status.json and Commit
@@ -60,21 +55,19 @@ jobs
             STATUS="DOWN"
           fi
           
-          # Generate the JSON file content
+          # Create valid JSON
           cat <<EOF > status.json
-
+{
   "url": "https://www.cinepolis.com/in",
   "status": "$STATUS",
   "status_code": "$SITE_STATUS",
   "checked_at": "$TIME_NOW"
-
+}
 EOF
           
-          # Git configuration
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           
-          # Check for changes and commit/push only if needed
           git add status.json
           
           if git diff --staged --quiet; then
@@ -82,8 +75,7 @@ EOF
           else
             git commit -m "Uptime Check: $STATUS ($SITE_STATUS)"
             
-            # Pushing using GITHUB_TOKEN for reliable authentication
-            # IMPORTANT: Change 'main' to 'master' if that is your default branch.
+            # Ensure correct branch name: main or master
             git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
             echo "Successfully committed and pushed status.json."
           fi
