@@ -22,41 +22,35 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm init -y
-          npm install puppeteer jq fs-extra
+          npm install node-fetch fs-extra
 
       - name: Check Website Status and Update Status.json
         id: check_site
         run: |
           node <<'EOF'
-          const puppeteer = require('puppeteer');
+          const fetch = require('node-fetch');
           const fs = require('fs-extra');
           const path = require('path');
 
-          const ROOT_STATUS_FILE = path.join('public','status.json');   // root for frontend
-          const LOG_FOLDER = path.join('public','logs');               // backup folder
+          const ROOT_STATUS_FILE = path.join('public','status.json');
+          const LOG_FOLDER = path.join('public','logs');
           const URL = 'https://www.cinepolis.com/in';
           const MAX_LOG = 1440;
 
           (async () => {
             let status = 'DOWN';
-try {
-  const start = Date.now();
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
-  });
-  const page = await browser.newPage();
-  const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
-  responseTime = Date.now() - start;
-  if (res && res.status() === 200) status = 'UP';
-  statusCode = res ? res.status() : 0;
-  await browser.close();
-} catch (err) {
-  console.error('Error accessing site:', err.message);
-}
+            let statusCode = 0;
+            let responseTime = 0;
 
-
+            try {
+              const start = Date.now();
+              const res = await fetch(URL, { method: 'GET', timeout: 60000 });
+              responseTime = Date.now() - start;
+              status = res.ok ? 'UP' : 'DOWN';
+              statusCode = res.status;
+            } catch (err) {
+              console.error('Error accessing site:', err.message);
+            }
 
             // Ensure logs folder exists
             await fs.ensureDir(LOG_FOLDER);
