@@ -1,286 +1,102 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Cinepolis Uptime Dashboard</title>
-
-  <style>
-    :root{
-      --bg-light:#f6f8fb;
-      --card-light:#ffffff;
-      --text-light:#0f172a;
-
-      --bg-dark:#0d1117;
-      --card-dark:#161b22;
-      --text-dark:#e6edf3;
-
-      --ok:#16a34a;
-      --down:#ef4444;
-      --muted:#6b7280;
-    }
-
-    [data-theme="light"]{
-      --bg:var(--bg-light);
-      --card:var(--card-light);
-      --text:var(--text-light);
-    }
-
-    [data-theme="dark"]{
-      --bg:var(--bg-dark);
-      --card:var(--card-dark);
-      --text:var(--text-dark);
-    }
-
-    body{
-      font-family:Inter,system-ui;
-      margin:0;
-      background:var(--bg);
-      color:var(--text);
-    }
-
-    .wrap{max-width:1100px;margin:20px auto;padding:18px}
-    header{display:flex;align-items:center;gap:16px}
-    header img{width:65px;height:65px;border-radius:10px}
-
-    .controls{display:flex;gap:10px;margin-left:auto}
-    button{
-      background:#111827;
-      color:#fff;
-      border:none;
-      padding:8px 12px;
-      border-radius:8px;
-      cursor:pointer;
-    }
-
-    .grid{display:grid;grid-template-columns:1fr 330px;gap:18px;margin-top:18px}
-    @media(max-width:900px){
-      .grid{grid-template-columns:1fr}
-    }
-
-    .card{
-      background:var(--card);
-      padding:16px;
-      border-radius:12px;
-      box-shadow:0 6px 18px rgba(0,0,0,0.15);
-    }
-
-    .status-big{display:flex;align-items:center;gap:12px}
-    .dot{width:15px;height:15px;border-radius:50%}
-    .up{background:var(--ok)}
-    .down{background:var(--down)}
-
-    ul.log{list-style:none;padding:0;margin:8px 0;max-height:300px;overflow:auto}
-    ul.log li{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #2223}
-
-    .chart-wrap{height:180px;margin-top:12px}
-
-    /* Fullscreen */
-    .fullscreen{
-      position:fixed;
-      inset:0;
-      background:var(--bg);
-      padding:20px;
-      overflow:auto;
-      z-index:999;
-    }
-  </style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Cinepolis Uptime Monitor</title>
+  <link rel="stylesheet" href="style.css"/>
 </head>
-
 <body>
-  <div class="wrap" id="main">
 
-    <header>
-      <img src="logo.png" />
-      <div>
-        <h2 style="margin:0">Cinepolis Uptime Dashboard</h2>
-        <p style="margin:0;opacity:0.7">Live monitoring with auto-refresh</p>
-      </div>
+<div class="wrap">
 
-      <div class="controls">
-        <button id="modeToggle">🌙</button>
-        <button id="fullscreenBtn">⛶ Fullscreen</button>
-        <button id="refresh">Refresh</button>
-      </div>
-    </header>
+<header style="display:flex;align-items:center;gap:16px">
+  <img src="assets/logo.png" width="70">
+  <div>
+    <h1 style="margin:0">Cinepolis Uptime Dashboard</h1>
+    <p class="small" style="margin:0;color:var(--muted)">
+      Realtime Uptime Monitor — Auto Refresh Enabled
+    </p>
+  </div>
 
-    <div class="grid">
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <button id="modeBtn">🌙/☀️</button>
+    <button id="fullscreenBtn">⛶</button>
+  </div>
+</header>
 
-      <!-- LEFT PANEL -->
-      <div>
-        <div class="card">
-          <div class="status-big">
-            <div id="statusDot" class="dot down"></div>
-            <div>
-              <h3 id="statusText" style="margin:0">Loading…</h3>
-              <small>Last checked: <span id="lastChecked">-</span></small>
-            </div>
-          </div>
+<div class="grid">
 
-          <div style="display:flex;gap:12px;margin-top:10px">
-            <div style="flex:1">
-              <small>Response time</small>
-              <h3 id="resp">- ms</h3>
-            </div>
-            <div style="flex:1">
-              <small>Uptime</small>
-              <h3 id="uptime">- %</h3>
-            </div>
-            <div style="flex:1">
-              <small>Status code</small>
-              <h3 id="code">-</h3>
-            </div>
-          </div>
-
-          <div class="chart-wrap">
-            <canvas id="chart"></canvas>
-          </div>
-
-          <h4>Recent Checks</h4>
-          <ul class="log" id="logList"></ul>
-        </div>
-
-        <div class="card" style="margin-top:12px">
-          <h3>Raw status.json</h3>
-          <pre id="raw"
-            style="max-height:260px;background:#000;color:#0f0;padding:10px;border-radius:8px;overflow:auto;font-size:13px">Loading…</pre>
+  <div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="statusDot" class="dot down"></div>
+        <div>
+          <div id="statusText" style="font-weight:700;font-size:20px">Loading…</div>
+          <div class="small">Last checked: <span id="lastChecked">-</span></div>
         </div>
       </div>
 
-      <!-- RIGHT PANEL -->
-      <aside>
-        <div class="card">
-          <h3>Info & Settings</h3>
-
-          <p>✔ Auto-refresh every 30 sec<br>
-             ✔ Telegram Alerts integrated<br>
-             ✔ Dark mode included<br>
-             ✔ Mobile ready</p>
-
-          <hr>
-
-          <h4>Telegram Alert Test</h4>
-          <button onclick="sendTelegram('🔔 Test alert from Cinepolis uptime dashboard!')">
-            Send Test Alert
-          </button>
+      <div class="kpi" style="display:flex;gap:12px;margin-top:12px">
+        <div class="k card-inner">
+          <div class="small">Response time</div>
+          <strong id="resp">- ms</strong>
         </div>
-      </aside>
+        <div class="k card-inner">
+          <div class="small">Uptime</div>
+          <strong id="uptime">- %</strong>
+        </div>
+        <div class="k card-inner">
+          <div class="small">Status code</div>
+          <strong id="code">-</strong>
+        </div>
+      </div>
 
+      <div style="margin-top:12px" class="chart-wrap">
+        <canvas id="uptimeChart" height="180"></canvas>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Recent checks</div>
+        <ul class="log" id="logList"></ul>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="margin:0 0 8px 0">Raw status.json</h3>
+      <pre id="raw" style="background:#0b1120;color:#e6eef8;padding:12px;border-radius:8px;max-height:250px;overflow:auto">Loading…</pre>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <script>
-    /* DOM Elements */
-    const statusDot = document.getElementById("statusDot");
-    const statusText = document.getElementById("statusText");
-    const lastChecked = document.getElementById("lastChecked");
-    const resp = document.getElementById("resp");
-    const code = document.getElementById("code");
-    const uptime = document.getElementById("uptime");
-    const logList = document.getElementById("logList");
-    const raw = document.getElementById("raw");
+  <aside>
+    <div class="card">
+      <h3>Info</h3>
+      <p class="small">Dashboard auto-pulls <code>status.json</code> every 30 sec.</p>
 
-    const refreshBtn = document.getElementById("refresh");
-    const modeToggle = document.getElementById("modeToggle");
-    const fullscreenBtn = document.getElementById("fullscreenBtn");
-    const main = document.getElementById("main");
+      <hr>
+      <p class="small"><strong>Telegram Alerts Enabled</strong></p>
+      <p class="small">DOWN होने पर तुरंत alert मिलेगा।</p>
 
-    let chart;
+      <hr>
+      <p class="small">
+        Want mail alerts?  
+        Want CSV export?  
+        Want 30-day history chart?
+      </p>
+    </div>
+  </aside>
 
-    /* DARK MODE */
-    modeToggle.onclick = () => {
-      const c = document.documentElement.getAttribute("data-theme");
-      const n = c === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", n);
-      modeToggle.textContent = n === "dark" ? "☀️" : "🌙";
-    };
+</div>
 
-    /* FULLSCREEN */
-    fullscreenBtn.onclick = () => {
-      main.classList.toggle("fullscreen");
-    };
+</div>
 
-    /* TELEGRAM ALERT */
-    async function sendTelegram(msg){
-      const TOKEN = "YOUR_BOT_TOKEN";
-      const CHAT_ID = "YOUR_CHAT_ID";
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN";
+const CHAT_ID = "YOUR_CHAT_ID";
+</script>
+<script src="app.js"></script>
 
-      try{
-        await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
-          method:"POST",
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({chat_id:CHAT_ID,text:msg})
-        });
-      }catch(e){
-        console.log("Telegram error:", e);
-      }
-    }
-
-    /* LOAD DATA */
-    async function loadData(){
-      try{
-        const r = await fetch("status.json?nocache=" + Date.now());
-        const data = await r.json();
-
-        raw.textContent = JSON.stringify(data, null, 2);
-
-        const latest = data[data.length - 1];
-        statusText.textContent = latest.status;
-        lastChecked.textContent = new Date(latest.checked_at).toLocaleString();
-        resp.textContent = latest.response_time + " ms";
-        code.textContent = latest.status_code;
-
-        if(latest.status === "UP"){
-          statusDot.classList.add("up");
-          statusDot.classList.remove("down");
-        }else{
-          statusDot.classList.add("down");
-          statusDot.classList.remove("up");
-
-          sendTelegram(`❌ CINÉPOLIS DOWN!\nStatus: ${latest.status_code}\nTime: ${latest.checked_at}`);
-        }
-
-        // uptime %
-        const upCount = data.filter(x=>x.status==="UP").length;
-        uptime.textContent = ((upCount / data.length) * 100).toFixed(2) + "%";
-
-        // recent logs
-        logList.innerHTML = "";
-        data.slice(-20).reverse().forEach(d=>{
-          const li = document.createElement("li");
-          li.innerHTML = `
-            <div><strong>${d.status}</strong> <small>${new Date(d.checked_at).toLocaleString()}</small></div>
-            <div>${d.response_time} ms</div>`;
-          logList.appendChild(li);
-        });
-
-        // chart
-        const labels = data.slice(-48).map(x=>new Date(x.checked_at).toLocaleTimeString());
-        const values = data.slice(-48).map(x=>x.status === "UP" ? 1 : 0);
-
-        if(chart) chart.destroy();
-        chart = new Chart(document.getElementById("chart"),{
-          type:"line",
-          data:{
-            labels,
-            datasets:[{data:values, fill:true, borderWidth:2, tension:0.3}]
-          },
-          options:{
-            scales:{y:{min:0,max:1}}
-          }
-        });
-
-      }catch(e){
-        statusText.textContent = "Error";
-        raw.textContent = "Error loading status.json";
-      }
-    }
-
-    refreshBtn.onclick = loadData;
-    setInterval(loadData, 30000); // auto refresh
-    loadData(); // initial
-  </script>
 </body>
 </html>
