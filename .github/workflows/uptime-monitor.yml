@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -20,11 +20,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           npm install node-fetch@2 fs-extra
 
-      - name: Check Website Status and Update Status.json
+      - name: Check Website + Update status.json
         id: check_site
         run: |
           node <<'EOF'
@@ -32,33 +32,24 @@ jobs:
           const fs = require('fs-extra');
           const path = require('path');
 
-          const ROOT_STATUS_FILE = path.join('public','status.json');
-          const LOG_FOLDER = path.join('public','logs');
+          const ROOT_STATUS_FILE = path.join('status.json');   // FIXED
+          const LOG_FOLDER = path.join('logs');                // FIXED
+
           const URL = 'https://www.cinepolis.com/in';
-          const LOG_RETENTION_HOURS = 24 * 7; 
+          const LOG_RETENTION_HOURS = 24 * 7;
 
           async function checkSite() {
             const start = Date.now();
-
             try {
               const res = await fetch(URL, {
                 method: 'GET',
-                redirect: 'manual',
-                timeout: 15000,
-                headers: {
-                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
-                  "Accept": "text/html,application/xhtml+xml",
-                  "Accept-Language": "en-US,en;q=0.9",
-                  "Cache-Control": "no-cache"
-                }
+                redirect: 'manual'
               });
 
               const responseTime = Date.now() - start;
 
-              // Cinepolis returns 301/302/307 redirects normally
-              if ([200, 301, 302, 307].includes(res.status)) {
+              if ([200,301,302,307].includes(res.status))
                 return { status: "UP", statusCode: res.status, responseTime };
-              }
 
               return { status: "DOWN", statusCode: res.status, responseTime };
 
@@ -67,11 +58,10 @@ jobs:
             }
           }
 
-          // Try two times (avoid firewall blocking)
           async function reliableCheck() {
-            let first = await checkSite();
+            const first = await checkSite();
             if (first.status === "UP") return first;
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 1500));
             return await checkSite();
           }
 
@@ -103,7 +93,7 @@ jobs:
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
             await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry);
 
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${result.status}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${result.statusCode}\n`);
@@ -112,28 +102,23 @@ jobs:
           })();
           EOF
 
-      - name: Telegram Alert - UP (if previously DOWN)
+      - name: Telegram UP alert
         if: ${{ env.STATUS == 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
-
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!*%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime:* ${{ env.UPTIME_PERCENT }}%"
+          PREV=$(jq -r '.[-2].status // ""' status.json || echo "")
+          if [ "$PREV" != "UP" ]; then
+            MSG="✅ *Website UP!*%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              --data-urlencode "text=$MSG" \
-              -d parse_mode="Markdown"
+              -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
           fi
 
-      - name: Telegram Alert - DOWN
+      - name: Telegram DOWN alert
         if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!*%0A*Status:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime:* ${{ env.UPTIME_PERCENT }}%"
+          MSG="🚨 *Website DOWN!*%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms"
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
+            -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
