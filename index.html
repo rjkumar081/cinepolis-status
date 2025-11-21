@@ -1,102 +1,41 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Cinepolis Uptime Monitor</title>
-  <link rel="stylesheet" href="style.css"/>
+  <meta charset="UTF-8">
+  <title>Cinépolis Uptime Dashboard</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<div class="wrap">
+<div class="container">
 
-<header style="display:flex;align-items:center;gap:16px">
-  <img src="assets/logo.png" width="70">
-  <div>
-    <h1 style="margin:0">Cinepolis Uptime Dashboard</h1>
-    <p class="small" style="margin:0;color:var(--muted)">
-      Realtime Uptime Monitor — Auto Refresh Enabled
-    </p>
+  <h1>Cinépolis Uptime Monitor</h1>
+
+  <div id="live-status" class="status-card">
+    <h2>Checking...</h2>
+    <p>Status: <span id="status">--</span></p>
+    <p>Status Code: <span id="statusCode">--</span></p>
+    <p>Response Time: <span id="respTime">--</span> ms</p>
+    <p>Uptime: <span id="uptime">--</span>%</p>
+    <p>Last Checked: <span id="checkedAt">--</span></p>
   </div>
 
-  <div style="margin-left:auto;display:flex;gap:8px">
-    <button id="modeBtn">🌙/☀️</button>
-    <button id="fullscreenBtn">⛶</button>
-  </div>
-</header>
-
-<div class="grid">
-
-  <div>
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div id="statusDot" class="dot down"></div>
-        <div>
-          <div id="statusText" style="font-weight:700;font-size:20px">Loading…</div>
-          <div class="small">Last checked: <span id="lastChecked">-</span></div>
-        </div>
-      </div>
-
-      <div class="kpi" style="display:flex;gap:12px;margin-top:12px">
-        <div class="k card-inner">
-          <div class="small">Response time</div>
-          <strong id="resp">- ms</strong>
-        </div>
-        <div class="k card-inner">
-          <div class="small">Uptime</div>
-          <strong id="uptime">- %</strong>
-        </div>
-        <div class="k card-inner">
-          <div class="small">Status code</div>
-          <strong id="code">-</strong>
-        </div>
-      </div>
-
-      <div style="margin-top:12px" class="chart-wrap">
-        <canvas id="uptimeChart" height="180"></canvas>
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="small">Recent checks</div>
-        <ul class="log" id="logList"></ul>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:12px">
-      <h3 style="margin:0 0 8px 0">Raw status.json</h3>
-      <pre id="raw" style="background:#0b1120;color:#e6eef8;padding:12px;border-radius:8px;max-height:250px;overflow:auto">Loading…</pre>
-    </div>
-  </div>
-
-
-  <aside>
-    <div class="card">
-      <h3>Info</h3>
-      <p class="small">Dashboard auto-pulls <code>status.json</code> every 30 sec.</p>
-
-      <hr>
-      <p class="small"><strong>Telegram Alerts Enabled</strong></p>
-      <p class="small">DOWN होने पर तुरंत alert मिलेगा।</p>
-
-      <hr>
-      <p class="small">
-        Want mail alerts?  
-        Want CSV export?  
-        Want 30-day history chart?
-      </p>
-    </div>
-  </aside>
+  <h2 class="log-title">Last 20 Checks</h2>
+  <table class="log-table" id="logTable">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Status</th>
+        <th>Code</th>
+        <th>Response</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
 </div>
 
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN";
-const CHAT_ID = "YOUR_CHAT_ID";
-</script>
-<script src="app.js"></script>
+<script src="script.js"></script>
 
 </body>
 </html>
