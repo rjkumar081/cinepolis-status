@@ -23,18 +23,20 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install puppeteer jq
+          npm install puppeteer jq fs-extra
 
-      - name: Check Website Status
+      - name: Check Website Status and Update Status.json
         id: check_site
         run: |
           node <<'EOF'
           const puppeteer = require('puppeteer');
-          const fs = require('fs');
+          const fs = require('fs-extra');
+          const path = require('path');
 
-          const STATUS_FILE = 'status.json';
+          const ROOT_STATUS_FILE = path.join('public','status.json');   // root for frontend
+          const LOG_FOLDER = path.join('public','logs');               // backup folder
           const URL = 'https://www.cinepolis.com/in';
-          const MAX_LOG = 1440; // last 24h of checks
+          const MAX_LOG = 1440;
 
           (async () => {
             let status = 'DOWN';
@@ -42,43 +44,46 @@ jobs:
             let responseTime = 0;
 
             try {
-              const startTime = Date.now();
+              const start = Date.now();
               const browser = await puppeteer.launch({
                 headless: true,
                 args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
               });
               const page = await browser.newPage();
-              const response = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
-              responseTime = Date.now() - startTime;
-              if (response && response.status() === 200) status = 'UP';
-              statusCode = response ? response.status() : 0;
+              const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
+              responseTime = Date.now() - start;
+              if (res && res.status() === 200) status = 'UP';
+              statusCode = res ? res.status() : 0;
               await browser.close();
             } catch (err) {
               console.error('Error accessing site:', err.message);
             }
 
-            // Read existing status.json safely
+            // Ensure logs folder exists
+            await fs.ensureDir(LOG_FOLDER);
+
+            // Read existing log
             let log = [];
-            if (fs.existsSync(STATUS_FILE)) {
+            if (await fs.pathExists(ROOT_STATUS_FILE)) {
               try {
-                const content = fs.readFileSync(STATUS_FILE, 'utf8');
+                const content = await fs.readFile(ROOT_STATUS_FILE, 'utf8');
                 const parsed = JSON.parse(content);
                 log = Array.isArray(parsed) ? parsed : [];
-              } catch (err) {
-                console.error("Invalid JSON, starting fresh log.");
+              } catch {
                 log = [];
               }
             }
 
             // Add new entry
-            log.push({
+            const entry = {
               checked_at: new Date().toISOString(),
               status: status,
               status_code: statusCode,
               response_time: responseTime
-            });
+            };
+            log.push(entry);
 
-            // Keep last MAX_LOG entries only
+            // Keep last MAX_LOG entries
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
             // Calculate uptime %
@@ -86,9 +91,10 @@ jobs:
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
             // Save log
-            fs.writeFileSync(STATUS_FILE, JSON.stringify(log, null, 2));
+            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            // Export variables
+            // Export variables for Telegram
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
@@ -102,7 +108,6 @@ jobs:
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
           MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
@@ -113,7 +118,7 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' status.json || echo "")
+          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
           
           if [ "$PREV_STATUS" != "UP" ]; then
             MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
@@ -122,15 +127,3 @@ jobs:
               --data-urlencode "text=$MSG" \
               -d parse_mode="Markdown"
           fi
-
-     - name: Commit status.json
-  run: |
-    git config user.name "GitHub Actions"
-    git config user.email "actions@github.com"
-    git add status.json
-    if git diff --staged --quiet; then
-      echo "No changes to commit."
-    else
-      git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
-      git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
-    fi
