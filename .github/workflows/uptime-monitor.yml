@@ -122,16 +122,3 @@ jobs:
               --data-urlencode "text=$MSG" \
               -d parse_mode="Markdown"
           fi
-
-     - name: Commit and push changes
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add $STATUS_FILE
-
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Uptime Check: $STATUS ($STATUS_CODE)"
-            git push https://$GITHUB_TOKEN@github.com/${{ github.repository }} HEAD:main
-          fi
