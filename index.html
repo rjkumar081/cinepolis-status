@@ -1,25 +1,68 @@
-async function loadStatus() {
-  const statusEl = document.getElementById('status');
-  const timeEl = document.getElementById('time');
-  statusEl.textContent = 'Loading...';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Status</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+    }
+    .status {
+      text-align: center;
+      padding: 40px;
+      border-radius: 10px;
+      background-color: #fff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .status h1 {
+      font-size: 2em;
+      margin-bottom: 10px;
+    }
+    .up {
+      color: green;
+    }
+    .down {
+      color: red;
+    }
+    .last-checked {
+      margin-top: 10px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div class="status">
+    <h1 id="status">Loading...</h1>
+    <div class="last-checked" id="lastChecked"></div>
+  </div>
 
-  try {
-    // Absolute path for GitHub Pages
-    const res = await fetch('/cinepolis-status/status.json?' + new Date().getTime());
-    if (!res.ok) throw new Error('Failed to fetch status.json');
+  <script>
+    fetch('status.json')
+      .then(res => res.json())
+      .then(data => {
+        const statusEl = document.getElementById('status');
+        const lastCheckedEl = document.getElementById('lastChecked');
+        
+        if(data.status === 'UP') {
+          statusEl.textContent = 'Website is UP ✅';
+          statusEl.className = 'up';
+        } else {
+          statusEl.textContent = 'Website is DOWN ❌';
+          statusEl.className = 'down';
+        }
 
-    const log = await res.json();
-    const latest = log[log.length - 1];
-    const isUp = latest.status === 'UP';
-    statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
-    statusEl.className = isUp ? 'status up' : 'status down';
-
-    const indiaTime = new Date(latest.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-    timeEl.textContent = `Last checked: ${indiaTime}`;
-  } catch (err) {
-    console.error(err);
-    statusEl.textContent = '❌ Error loading status';
-    statusEl.className = 'status down';
-  }
-}
-fetch('/cinepolis-status/status.json?' + new Date().getTime())
+        lastCheckedEl.textContent = 'Last checked: ' + data.lastChecked;
+      })
+      .catch(err => {
+        document.getElementById('status').textContent = 'Error loading status';
+        console.error(err);
+      });
+  </script>
+</body>
+</html>
