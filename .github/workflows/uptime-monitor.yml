@@ -2,123 +2,71 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/3 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
-  monitor:
+  uptime:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout Repo
         uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20
-
-      - name: Install deps
+      - name: Install Browser Dependencies
         run: |
-          npm install node-fetch@2 fs-extra
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxss1 libnss3 libatk1.0-0 libcups2 \
+            libx11-xcb1 libxcomposite1 libxrandr2 \
+            libgbm-dev libasound2 libxdamage1 \
+            libxext6 libxfixes3 libpangocairo-1.0-0
 
-      - name: Check Website + Update status.json
-        id: check_site
-        run: |
-          node <<'EOF'
-          const fetch = require('node-fetch');
-          const fs = require('fs-extra');
-          const path = require('path');
+      - name: Install Packages
+        run: npm install puppeteer fs-extra
 
-          const ROOT_STATUS_FILE = path.join('status.json');   // FIXED
-          const LOG_FOLDER = path.join('logs');                // FIXED
-
-          const URL = 'https://www.cinepolis.com/in';
-          const LOG_RETENTION_HOURS = 24 * 7;
-
-          async function checkSite() {
-            const start = Date.now();
-            try {
-              const res = await fetch(URL, {
-                method: 'GET',
-                redirect: 'manual'
-              });
-
-              const responseTime = Date.now() - start;
-
-              if ([200,301,302,307].includes(res.status))
-                return { status: "UP", statusCode: res.status, responseTime };
-
-              return { status: "DOWN", statusCode: res.status, responseTime };
-
-            } catch (err) {
-              return { status: "DOWN", statusCode: 0, responseTime: Date.now() - start };
-            }
-          }
-
-          async function reliableCheck() {
-            const first = await checkSite();
-            if (first.status === "UP") return first;
-            await new Promise(r => setTimeout(r, 1500));
-            return await checkSite();
-          }
-
-          (async () => {
-            const result = await reliableCheck();
-
-            await fs.ensureDir(LOG_FOLDER);
-
-            let log = [];
-            if (await fs.pathExists(ROOT_STATUS_FILE)) {
-              try {
-                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, 'utf8'));
-              } catch {}
-            }
-
-            const entry = {
-              checked_at: new Date().toISOString(),
-              status: result.status,
-              status_code: result.statusCode,
-              response_time: result.responseTime
-            };
-
-            log.push(entry);
-
-            const cutoff = Date.now() - LOG_RETENTION_HOURS * 3600 * 1000;
-            log = log.filter(e => new Date(e.checked_at).getTime() >= cutoff);
-
-            const upCount = log.filter(e => e.status === 'UP').length;
-            const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
-
-            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry);
-
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${result.status}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${result.statusCode}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${result.responseTime}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
-          })();
-          EOF
-
-      - name: Telegram UP alert
-        if: ${{ env.STATUS == 'UP' }}
+      - name: Telegram Alert - Workflow Triggered
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV=$(jq -r '.[-2].status // ""' status.json || echo "")
-          if [ "$PREV" != "UP" ]; then
-            MSG="✅ *Website UP!*%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
-            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
+          MSG="⚡ *Cinépolis Uptime Monitor Started!*"
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
+
+      - name: Run Real Browser Uptime Check
+        run: node monitor/real-check.js
+
+      - name: Copy status.json to root
+        run: cp public/status.json status.json
+
+      - name: Commit Updated Status
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json public/status.json
+          if git diff --staged --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Updated uptime log"
+            git push
           fi
 
-      - name: Telegram DOWN alert
-        if: ${{ env.STATUS != 'UP' }}
+      - name: UP/DOWN Telegram Alerts
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!*%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms"
+
+          STATUS=$(jq -r '.[-1].status' status.json)
+          CODE=$(jq -r '.[-1].statusCode' status.json)
+          TIME=$(jq -r '.[-1].responseTime' status.json)
+
+          if [ "$STATUS" = "UP" ]; then
+            MSG="🟢 *Website UP*\nStatus Code: $CODE\nResponse: ${TIME}ms"
+          else
+            MSG="🔴 *Website DOWN*\nStatus Code: $CODE\nResponse: ${TIME}ms"
+          fi
+
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
