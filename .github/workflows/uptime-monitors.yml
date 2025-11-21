@@ -22,26 +22,26 @@ jobs:
 
       - name: Install system dependencies (jq)
         run: |
+          # jq अभी भी Telegram alert logic के लिए चाहिए
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Install Node.js dependencies (puppeteer)
-        run: |
-          npm init -y
-          npm install puppeteer
-
-      - name: Check Website Status
+      # dependencies install की आवश्यकता नहीं है, Puppeteer हटा दिया गया है
+      
+      - name: Check Website Status (Using Node.js HTTPS Module)
         id: check_site
         run: |
           node <<'EOF'
-          const puppeteer = require('puppeteer');
+          const https = require('https'); // केवल built-in https मॉड्यूल का उपयोग
           const fs = require('fs');
+          const url = require('url'); // URL को parse करने के लिए
 
           const STATUS_FILE = 'status.json';
-          const URL = 'https://www.cinepolis.com/in';
+          const TARGET_URL = 'https://www.cinepolis.com/in';
           const MAX_LOG = 1440; // पिछले 24 घंटे की जांच
-          // User Agent को एक सामान्य डेस्कटॉप ब्राउज़र जैसा सेट करें
-          const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36';
+          const TIMEOUT_MS = 120000; // 2 मिनट का timeout
+
+          const targetOptions = url.parse(TARGET_URL);
 
           (async () => {
             let status = 'DOWN';
@@ -50,36 +50,60 @@ jobs:
 
             try {
               const startTime = Date.now();
-              const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
-              });
-              const page = await browser.newPage();
               
-              // 👇 बदलाव 3: User Agent सेट किया गया
-              await page.setUserAgent(USER_AGENT); 
+              const checkPromise = new Promise((resolve, reject) => {
+                const req = https.request({
+                  ...targetOptions,
+                  method: 'HEAD', // केवल Header fetch करें, जो बहुत तेज़ होता है
+                  headers: {
+                    'User-Agent': 'Uptime Monitor Bot/1.0 (via Node.js)',
+                    'Accept': '*/*'
+                  }
+                }, (res) => {
+                  responseTime = Date.now() - startTime;
+                  const finalStatusCode = res.statusCode;
+                  
+                  if (finalStatusCode >= 200 && finalStatusCode < 300) {
+                    status = 'UP';
+                  } else {
+                    status = 'DOWN';
+                  }
+                  statusCode = finalStatusCode;
+                  resolve();
+                });
 
-              // 👇 बदलाव 1: Timeout 120000ms (2 मिनट) किया गया
-              // 👇 बदलाव 2: waitUntil को 'load' में बदला गया
-              const response = await page.goto(URL, { waitUntil: 'load', timeout: 120000 }); 
+                req.on('error', (e) => {
+                  responseTime = Date.now() - startTime;
+                  console.error('Request Error:', e.message);
+                  statusCode = 0;
+                  status = 'DOWN';
+                  resolve(); 
+                });
+
+                req.setTimeout(TIMEOUT_MS, () => {
+                  req.destroy();
+                  responseTime = Date.now() - startTime;
+                  console.error('Request Timeout after:', TIMEOUT_MS, 'ms');
+                  statusCode = 0;
+                  status = 'DOWN';
+                  resolve();
+                });
+                
+                req.end();
+              });
+
+              await checkPromise;
               
-              responseTime = Date.now() - startTime;
-              
-              // 200-299 के बीच के किसी भी status code को UP माना जाएगा
-              if (response && response.status() >= 200 && response.status() < 300) status = 'UP';
-              
-              statusCode = response ? response.status() : 0;
-              await browser.close();
             } catch (err) {
-              console.error('Error accessing site:', err.message);
-              // यदि error code 403 (Forbidden) है, तो यह Bot blocking हो सकता है।
-              if (err.message.includes('403')) {
-                  console.error('Potential Bot Blocking Detected.');
-              }
+              // यह ब्लॉक मुख्य रूप से केवल Promise/setup errors को पकड़ेगा
+              console.error('General Script Error:', err.message);
+              statusCode = 0;
+              status = 'DOWN';
             }
 
             // Read existing status.json safely
             let log = [];
+            // ... (log logic is unchanged)
             if (fs.existsSync(STATUS_FILE)) {
               try {
                 const content = fs.readFileSync(STATUS_FILE, 'utf8');
