@@ -96,12 +96,13 @@ jobs:
           })();
           EOF
 
-      - name: Telegram Alert - DOWN
+         - name: Telegram Alert - DOWN
         if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
           MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
@@ -112,10 +113,23 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
+          PREV_STATUS=$(jq -r '.[-2].status // ""' status.json || echo "")
+          
           if [ "$PREV_STATUS" != "UP" ]; then
             MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
               -d chat_id="$CHAT_ID" \
               --data-urlencode "text=$MSG" \
               -d parse_mode="Markdown"
+          fi
+- name: Commit status.json
+  run: |
+    git config user.name "GitHub Actions"
+    git config user.email "actions@github.com"
+    git add status.json
+    if git diff --staged --quiet; then
+      echo "No changes to commit."
+    else
+      git commit -m "Uptime Check: ${{ env.STATUS }} (${{ env.STATUS_CODE }})"
+      git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:main
+    fi
