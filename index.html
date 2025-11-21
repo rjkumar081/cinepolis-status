@@ -31,6 +31,18 @@
       font-size: 1rem;
       cursor: pointer;
     }
+    table {
+      margin-top: 20px;
+      border-collapse: collapse;
+      color: #fff;
+    }
+    th, td {
+      padding: 6px 12px;
+      border: 1px solid #444;
+    }
+    th {
+      background-color: #222;
+    }
   </style>
 </head>
 <body>
@@ -39,35 +51,73 @@
   <div id="time" class="time"></div>
   <button onclick="loadStatus()">Refresh Now</button>
 
+  <h2>Last 10 Checks</h2>
+  <table id="logTable">
+    <thead>
+      <tr>
+        <th>Checked At (IST)</th>
+        <th>Status</th>
+        <th>Status Code</th>
+        <th>Response Time (ms)</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
   <script>
     async function loadStatus() {
       const statusEl = document.getElementById('status');
       const timeEl = document.getElementById('time');
+      const tableBody = document.querySelector('#logTable tbody');
       statusEl.textContent = 'Loading...';
+      tableBody.innerHTML = '';
 
       try {
         const res = await fetch('status.json?' + new Date().getTime()); // cache bypass
-        if (!res.ok) throw new Error('Network response was not ok');
+        if (!res.ok) throw new Error('Failed to fetch status.json');
 
-        const data = await res.json();
-        const isUp = data.status === 'up';
+        const log = await res.json();
+        if (!Array.isArray(log) || log.length === 0) {
+          statusEl.textContent = '❌ No data available';
+          return;
+        }
+
+        // Latest status
+        const latest = log[log.length - 1];
+        const isUp = latest.status === 'UP';
         statusEl.textContent = isUp ? '✅ Website is UP' : '❌ Website is DOWN';
         statusEl.className = isUp ? 'status up' : 'status down';
 
-        const indiaTime = new Date(data.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+        // India Time
+        const indiaTime = new Date(latest.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
         timeEl.textContent = `Last checked: ${indiaTime}`;
+
+        // Show last 10 logs
+        const lastLogs = log.slice(-10).reverse();
+        lastLogs.forEach(entry => {
+          const tr = document.createElement('tr');
+          const checkedAt = new Date(entry.checked_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+          tr.innerHTML = `
+            <td>${checkedAt}</td>
+            <td>${entry.status}</td>
+            <td>${entry.status_code}</td>
+            <td>${entry.response_time}</td>
+          `;
+          tableBody.appendChild(tr);
+        });
+
       } catch (err) {
+        console.error(err);
         statusEl.textContent = '❌ Error loading status';
         statusEl.className = 'status down';
         timeEl.textContent = '';
-        console.error(err);
       }
     }
 
     // Load immediately
     loadStatus();
 
-    // Auto refresh every 3 minutes
+    // Auto-refresh every 3 minutes
     setInterval(loadStatus, 3 * 60 * 1000);
   </script>
 </body>
