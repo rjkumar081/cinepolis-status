@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -12,61 +12,53 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Browser Dependencies
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Ubuntu dependencies for Playwright
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libxss1 libnss3 libatk1.0-0 libcups2 \
-            libx11-xcb1 libxcomposite1 libxrandr2 \
-            libgbm-dev libasound2 libxdamage1 \
-            libxext6 libxfixes3 libpangocairo-1.0-0
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libasound2 \
+            libatspi2.0-0 \
+            libgtk-3-0
 
-      - name: Install Packages
-        run: npm install puppeteer fs-extra
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
 
-      - name: Telegram Alert - Workflow Triggered
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="⚡ *Cinépolis Uptime Monitor Started!*"
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
+      - name: Run monitor
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node monitor.js
 
-      - name: Run Real Browser Uptime Check
-        run: node monitor/real-check.js
-
-      - name: Copy status.json to root
-        run: cp public/status.json status.json
-
-      - name: Commit Updated Status
+      - name: Commit status.json
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add status.json public/status.json
+          git add status.json
           if git diff --staged --quiet; then
-            echo "No changes."
+            echo "No changes.";
           else
-            git commit -m "Updated uptime log"
+            git commit -m "Uptime update"
             git push
           fi
-
-      - name: UP/DOWN Telegram Alerts
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-
-          STATUS=$(jq -r '.[-1].status' status.json)
-          CODE=$(jq -r '.[-1].statusCode' status.json)
-          TIME=$(jq -r '.[-1].responseTime' status.json)
-
-          if [ "$STATUS" = "UP" ]; then
-            MSG="🟢 *Website UP*\nStatus Code: $CODE\nResponse: ${TIME}ms"
-          else
-            MSG="🔴 *Website DOWN*\nStatus Code: $CODE\nResponse: ${TIME}ms"
-          fi
-
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" --data-urlencode "text=$MSG" -d parse_mode="Markdown"
