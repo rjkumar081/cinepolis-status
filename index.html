@@ -1,192 +1,286 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cinepolis Uptime Dashboard</title>
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
-
   <style>
-    :root{--bg:#f6f8fb;--card:#fff;--ok:#16a34a;--down:#ef4444;--muted:#6b7280}
-    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0;background:linear-gradient(180deg,#f8fafc,#eef2ff);color:#0f172a}
-    .wrap{max-width:1100px;margin:28px auto;padding:18px}
+    :root{
+      --bg-light:#f6f8fb;
+      --card-light:#ffffff;
+      --text-light:#0f172a;
+
+      --bg-dark:#0d1117;
+      --card-dark:#161b22;
+      --text-dark:#e6edf3;
+
+      --ok:#16a34a;
+      --down:#ef4444;
+      --muted:#6b7280;
+    }
+
+    [data-theme="light"]{
+      --bg:var(--bg-light);
+      --card:var(--card-light);
+      --text:var(--text-light);
+    }
+
+    [data-theme="dark"]{
+      --bg:var(--bg-dark);
+      --card:var(--card-dark);
+      --text:var(--text-dark);
+    }
+
+    body{
+      font-family:Inter,system-ui;
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    .wrap{max-width:1100px;margin:20px auto;padding:18px}
     header{display:flex;align-items:center;gap:16px}
-    header img{width:72px;height:72px;border-radius:8px;object-fit:cover}
-    h1{font-size:20px;margin:0}
-    p.sub{margin:0;color:var(--muted)}
-    .grid{display:grid;grid-template-columns:1fr 340px;gap:18px;margin-top:18px}
-    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(12,18,33,0.06)}
+    header img{width:65px;height:65px;border-radius:10px}
+
+    .controls{display:flex;gap:10px;margin-left:auto}
+    button{
+      background:#111827;
+      color:#fff;
+      border:none;
+      padding:8px 12px;
+      border-radius:8px;
+      cursor:pointer;
+    }
+
+    .grid{display:grid;grid-template-columns:1fr 330px;gap:18px;margin-top:18px}
+    @media(max-width:900px){
+      .grid{grid-template-columns:1fr}
+    }
+
+    .card{
+      background:var(--card);
+      padding:16px;
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,0.15);
+    }
+
     .status-big{display:flex;align-items:center;gap:12px}
-    .dot{width:14px;height:14px;border-radius:50%}
+    .dot{width:15px;height:15px;border-radius:50%}
     .up{background:var(--ok)}
     .down{background:var(--down)}
-    .kpi{display:flex;gap:12px;margin-top:12px}
-    .k strong{display:block;font-size:20px}
-    .small{color:var(--muted);font-size:13px}
-    ul.log{list-style:none;padding:0;margin:8px 0;max-height:360px;overflow:auto}
-    ul.log li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9}
-    .chart-wrap{height:180px}
-    footer{margin-top:18px;color:var(--muted);font-size:13px}
-    .controls{display:flex;gap:8px;align-items:center}
-    button{background:#111827;color:#fff;border:none;padding:8px 10px;border-radius:8px;cursor:pointer}
+
+    ul.log{list-style:none;padding:0;margin:8px 0;max-height:300px;overflow:auto}
+    ul.log li{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #2223}
+
+    .chart-wrap{height:180px;margin-top:12px}
+
+    /* Fullscreen */
+    .fullscreen{
+      position:fixed;
+      inset:0;
+      background:var(--bg);
+      padding:20px;
+      overflow:auto;
+      z-index:999;
+    }
   </style>
 </head>
 
 <body>
-  <div class="wrap">
+  <div class="wrap" id="main">
+
     <header>
-      <img src="logo.png" alt="logo" />
+      <img src="logo.png" />
       <div>
-        <h1>Cinepolis Uptime Dashboard</h1>
-        <p class="sub">Live status • Auto refresh enabled</p>
+        <h2 style="margin:0">Cinepolis Uptime Dashboard</h2>
+        <p style="margin:0;opacity:0.7">Live monitoring with auto-refresh</p>
       </div>
-      <div style="margin-left:auto" class="controls">
+
+      <div class="controls">
+        <button id="modeToggle">🌙</button>
+        <button id="fullscreenBtn">⛶ Fullscreen</button>
         <button id="refresh">Refresh</button>
       </div>
     </header>
 
     <div class="grid">
+
+      <!-- LEFT PANEL -->
       <div>
         <div class="card">
-          
           <div class="status-big">
             <div id="statusDot" class="dot down"></div>
             <div>
-              <div id="statusText" style="font-weight:700;font-size:18px">Loading...</div>
-              <div class="small">Last checked: <span id="lastChecked">-</span></div>
+              <h3 id="statusText" style="margin:0">Loading…</h3>
+              <small>Last checked: <span id="lastChecked">-</span></small>
             </div>
           </div>
 
-          <div class="kpi">
-            <div class="k">
-              <div class="small">Response time</div>
-              <strong id="resp">- ms</strong>
+          <div style="display:flex;gap:12px;margin-top:10px">
+            <div style="flex:1">
+              <small>Response time</small>
+              <h3 id="resp">- ms</h3>
             </div>
-            <div class="k">
-              <div class="small">Uptime (window)</div>
-              <strong id="uptime">- %</strong>
+            <div style="flex:1">
+              <small>Uptime</small>
+              <h3 id="uptime">- %</h3>
             </div>
-            <div class="k">
-              <div class="small">Status code</div>
-              <strong id="code">-</strong>
+            <div style="flex:1">
+              <small>Status code</small>
+              <h3 id="code">-</h3>
             </div>
           </div>
 
-          <div style="margin-top:12px" class="chart-wrap">
-            <canvas id="uptimeChart" width="600" height="180"></canvas>
+          <div class="chart-wrap">
+            <canvas id="chart"></canvas>
           </div>
 
-          <div style="margin-top:12px">
-            <div class="small">Recent checks</div>
-            <ul class="log" id="logList"></ul>
-          </div>
+          <h4>Recent Checks</h4>
+          <ul class="log" id="logList"></ul>
         </div>
 
-        <div style="margin-top:12px" class="card">
-          <h3 style="margin:0 0 8px 0">Raw status.json</h3>
-          <pre id="raw" style="max-height:220px;overflow:auto;background:#0b1120;color:#e6eef8;padding:12px;border-radius:8px">Loading…</pre>
+        <div class="card" style="margin-top:12px">
+          <h3>Raw status.json</h3>
+          <pre id="raw"
+            style="max-height:260px;background:#000;color:#0f0;padding:10px;border-radius:8px;overflow:auto;font-size:13px">Loading…</pre>
         </div>
       </div>
 
+      <!-- RIGHT PANEL -->
       <aside>
         <div class="card">
-          <h3>Info</h3>
-          <p class="small">This dashboard fetches <code>status.json</code> every 30 seconds (realtime).</p>
-          <hr />
-          <p class="small"><strong>How to use:</strong></p>
-          <ol class="small">
-            <li>Workflow generates <code>status.json</code> at repo root.</li>
-            <li>GitHub Pages must be enabled on same branch.</li>
-            <li>Page auto refreshes every 30 seconds.</li>
-          </ol>
+          <h3>Info & Settings</h3>
+
+          <p>✔ Auto-refresh every 30 sec<br>
+             ✔ Telegram Alerts integrated<br>
+             ✔ Dark mode included<br>
+             ✔ Mobile ready</p>
+
+          <hr>
+
+          <h4>Telegram Alert Test</h4>
+          <button onclick="sendTelegram('🔔 Test alert from Cinepolis uptime dashboard!')">
+            Send Test Alert
+          </button>
         </div>
       </aside>
-    </div>
 
-    <footer>
-      <small>Live uptime monitoring • Auto refresh active</small>
-    </footer>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <script>
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const lastChecked = document.getElementById('lastChecked');
-    const resp = document.getElementById('resp');
-    const uptime = document.getElementById('uptime');
-    const code = document.getElementById('code');
-    const logList = document.getElementById('logList');
-    const raw = document.getElementById('raw');
-    const refresh = document.getElementById('refresh');
+    /* DOM Elements */
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+    const lastChecked = document.getElementById("lastChecked");
+    const resp = document.getElementById("resp");
+    const code = document.getElementById("code");
+    const uptime = document.getElementById("uptime");
+    const logList = document.getElementById("logList");
+    const raw = document.getElementById("raw");
 
-    const ctx = document.getElementById('uptimeChart').getContext('2d');
+    const refreshBtn = document.getElementById("refresh");
+    const modeToggle = document.getElementById("modeToggle");
+    const fullscreenBtn = document.getElementById("fullscreenBtn");
+    const main = document.getElementById("main");
+
     let chart;
 
-    // ⭐ realtime fetch every 30 seconds
-    setInterval(loadData, 30000);
+    /* DARK MODE */
+    modeToggle.onclick = () => {
+      const c = document.documentElement.getAttribute("data-theme");
+      const n = c === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", n);
+      modeToggle.textContent = n === "dark" ? "☀️" : "🌙";
+    };
 
-    refresh.addEventListener('click', loadData);
+    /* FULLSCREEN */
+    fullscreenBtn.onclick = () => {
+      main.classList.toggle("fullscreen");
+    };
 
-    async function loadData() {
-      try {
-        // ⭐ GitHub Pages correct path
-        const r = await fetch('status.json?cache=' + Date.now());
+    /* TELEGRAM ALERT */
+    async function sendTelegram(msg){
+      const TOKEN = "YOUR_BOT_TOKEN";
+      const CHAT_ID = "YOUR_CHAT_ID";
 
-        if (!r.ok) throw new Error('status.json not found');
+      try{
+        await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
+          method:"POST",
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({chat_id:CHAT_ID,text:msg})
+        });
+      }catch(e){
+        console.log("Telegram error:", e);
+      }
+    }
+
+    /* LOAD DATA */
+    async function loadData(){
+      try{
+        const r = await fetch("status.json?nocache=" + Date.now());
         const data = await r.json();
 
         raw.textContent = JSON.stringify(data, null, 2);
 
         const latest = data[data.length - 1];
-
         statusText.textContent = latest.status;
         lastChecked.textContent = new Date(latest.checked_at).toLocaleString();
-        resp.textContent = latest.response_time + ' ms';
+        resp.textContent = latest.response_time + " ms";
         code.textContent = latest.status_code;
 
-        if (latest.status === 'UP') {
-          statusDot.classList.remove('down');
-          statusDot.classList.add('up');
-        } else {
-          statusDot.classList.remove('up');
-          statusDot.classList.add('down');
+        if(latest.status === "UP"){
+          statusDot.classList.add("up");
+          statusDot.classList.remove("down");
+        }else{
+          statusDot.classList.add("down");
+          statusDot.classList.remove("up");
+
+          sendTelegram(`❌ CINÉPOLIS DOWN!\nStatus: ${latest.status_code}\nTime: ${latest.checked_at}`);
         }
 
-        const upCount = data.filter(x => x.status === 'UP').length;
-        uptime.textContent = ((upCount / data.length) * 100).toFixed(2) + '%';
+        // uptime %
+        const upCount = data.filter(x=>x.status==="UP").length;
+        uptime.textContent = ((upCount / data.length) * 100).toFixed(2) + "%";
 
-        // recent list
-        logList.innerHTML = '';
-        data.slice(-30).reverse().forEach(e => {
-          const li = document.createElement('li');
-          li.innerHTML = `<div><strong>${e.status}</strong> <span class="small">${new Date(e.checked_at).toLocaleString()}</span></div><div>${e.response_time}ms</div>`;
+        // recent logs
+        logList.innerHTML = "";
+        data.slice(-20).reverse().forEach(d=>{
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <div><strong>${d.status}</strong> <small>${new Date(d.checked_at).toLocaleString()}</small></div>
+            <div>${d.response_time} ms</div>`;
           logList.appendChild(li);
         });
 
         // chart
-        const labels = data.slice(-48).map(d => new Date(d.checked_at).toLocaleTimeString());
-        const values = data.slice(-48).map(d => d.status === 'UP' ? 1 : 0);
+        const labels = data.slice(-48).map(x=>new Date(x.checked_at).toLocaleTimeString());
+        const values = data.slice(-48).map(x=>x.status === "UP" ? 1 : 0);
 
-        if (chart) chart.destroy();
-        chart = new Chart(ctx, {
-          type: 'line',
-          data: { labels, datasets: [{ data: values, fill: true, tension: 0.2 }] },
-          options: {
-            scales: { y: { min:0, max:1, ticks:{stepSize:1} } },
-            plugins: { legend: { display:false } }
+        if(chart) chart.destroy();
+        chart = new Chart(document.getElementById("chart"),{
+          type:"line",
+          data:{
+            labels,
+            datasets:[{data:values, fill:true, borderWidth:2, tension:0.3}]
+          },
+          options:{
+            scales:{y:{min:0,max:1}}
           }
         });
 
-      } catch (e) {
-        statusText.textContent = "Error loading";
-        raw.textContent = e.message;
+      }catch(e){
+        statusText.textContent = "Error";
+        raw.textContent = "Error loading status.json";
       }
     }
 
-    loadData(); // initial load
+    refreshBtn.onclick = loadData;
+    setInterval(loadData, 30000); // auto refresh
+    loadData(); // initial
   </script>
 </body>
 </html>
