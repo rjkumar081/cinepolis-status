@@ -2,37 +2,70 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cinépolis Uptime Dashboard</title>
+  <title>Cinépolis Uptime Monitor</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
+  <div class="container">
+    <h1>Cinépolis Uptime Monitor</h1>
 
-  <h1>Cinépolis Uptime Monitor</h1>
+    <div id="statusBox" class="card loading">
+      Loading real-time status...
+    </div>
 
-  <div id="statusCard" class="card">
-    <h2 id="bigStatus">Checking...</h2>
-    <p>Status: <span id="status">--</span></p>
-    <p>Status Code: <span id="statusCode">--</span></p>
-    <p>Response Time: <span id="respTime">--</span> ms</p>
-    <p>Uptime: <span id="uptime">--</span>%</p>
-    <p>Last Checked: <span id="checkedAt">--</span></p>
+    <h2>Last Checks</h2>
+    <table id="logTable">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Status</th>
+          <th>Code</th>
+          <th>Response</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
 
-  <h2>Last 20 Checks</h2>
+  <script>
+    async function loadData() {
+      try {
+        const res = await fetch("status.json?cache=" + Date.now());
+        const data = await res.json();
 
-  <table id="logTable">
-    <thead>
-      <tr>
-        <th>Time</th>
-        <th>Status</th>
-        <th>Code</th>
-        <th>RTT</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+        const latest = data[data.length - 1];
 
-  <script src="script.js"></script>
+        const box = document.getElementById("statusBox");
+        box.classList.remove("loading");
+
+        if (latest.status === "UP") {
+          box.classList.add("up");
+          box.innerHTML = `🟢 Website is UP<br>Status: ${latest.statusCode}<br>Response: ${latest.responseTime}ms`;
+        } else {
+          box.classList.add("down");
+          box.innerHTML = `🔴 Website is DOWN<br>Status: ${latest.statusCode}<br>Response: ${latest.responseTime}ms`;
+        }
+
+        let tbody = document.querySelector("#logTable tbody");
+        tbody.innerHTML = "";
+
+        [...data].reverse().forEach((entry) => {
+          let row = `<tr>
+            <td>${entry.checked_at}</td>
+            <td>${entry.status}</td>
+            <td>${entry.statusCode}</td>
+            <td>${entry.responseTime}ms</td>
+          </tr>`;
+          tbody.innerHTML += row;
+        });
+      } catch (e) {
+        document.getElementById("statusBox").innerHTML =
+          "Error loading status.json";
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 60000);
+  </script>
 </body>
 </html>
