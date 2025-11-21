@@ -22,3 +22,4 @@ async function loadStatus() {
     statusEl.className = 'status down';
   }
 }
+fetch('/cinepolis-status/status.json?' + new Date().getTime())
