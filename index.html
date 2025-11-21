@@ -1,18 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Cinépolis Uptime Dashboard</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body>
 
-<div class="container">
+<body>
 
   <h1>Cinépolis Uptime Monitor</h1>
 
-  <div id="live-status" class="status-card">
-    <h2>Checking...</h2>
+  <div id="statusCard" class="card">
+    <h2 id="bigStatus">Checking...</h2>
     <p>Status: <span id="status">--</span></p>
     <p>Status Code: <span id="statusCode">--</span></p>
     <p>Response Time: <span id="respTime">--</span> ms</p>
@@ -20,22 +19,20 @@
     <p>Last Checked: <span id="checkedAt">--</span></p>
   </div>
 
-  <h2 class="log-title">Last 20 Checks</h2>
-  <table class="log-table" id="logTable">
+  <h2>Last 20 Checks</h2>
+
+  <table id="logTable">
     <thead>
       <tr>
         <th>Time</th>
         <th>Status</th>
         <th>Code</th>
-        <th>Response</th>
+        <th>RTT</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
 
-</div>
-
-<script src="script.js"></script>
-
+  <script src="script.js"></script>
 </body>
 </html>
