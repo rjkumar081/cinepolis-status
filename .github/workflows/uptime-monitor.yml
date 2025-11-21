@@ -44,7 +44,7 @@ jobs:
 
             try {
               const start = Date.now();
-              const res = await fetch(URL, { method: 'GET', timeout: 60000 });
+              const res = await fetch(URL, { method: 'GET', timeout: 160000 });
               responseTime = Date.now() - start;
               status = res.ok ? 'UP' : 'DOWN';
               statusCode = res.status;
