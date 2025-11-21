@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/3 * * * *"   # every 3 minutes
+    - cron: "*/3 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -22,87 +22,96 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install axios fs-extra
+          npm install node-fetch@2 fs-extra
 
       - name: Check Website Status and Update Status.json
         id: check_site
         run: |
           node <<'EOF'
-          const axios = require("axios");
-          const fs = require("fs-extra");
-          const path = require("path");
+          const fetch = require('node-fetch');
+          const fs = require('fs-extra');
+          const path = require('path');
 
-          const ROOT_STATUS_FILE = path.join("public", "status.json");
-          const LOG_FOLDER = path.join("public", "logs");
-          const URL = "https://www.cinepolis.com/in";
-          const LOG_RETENTION_HOURS = 24 * 7; // keep 7 days
+          const ROOT_STATUS_FILE = path.join('public','status.json');
+          const LOG_FOLDER = path.join('public','logs');
+          const URL = 'https://www.cinepolis.com/in';
+          const LOG_RETENTION_HOURS = 24 * 7; 
 
-          (async () => {
-            let status = "DOWN";
-            let statusCode = 0;
-            let responseTime = 0;
+          async function checkSite() {
+            const start = Date.now();
 
             try {
-              const start = Date.now();
-              const res = await axios.get(URL, {
-                timeout: 80000,
+              const res = await fetch(URL, {
+                method: 'GET',
+                redirect: 'manual',
+                timeout: 15000,
                 headers: {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
                   "Accept": "text/html,application/xhtml+xml",
                   "Accept-Language": "en-US,en;q=0.9",
-                  "Cache-Control": "no-cache",
-                  "Pragma": "no-cache"
-                },
-                validateStatus: () => true
+                  "Cache-Control": "no-cache"
+                }
               });
 
-              responseTime = Date.now() - start;
-              statusCode = res.status;
-              status = statusCode === 200 ? "UP" : "DOWN";
+              const responseTime = Date.now() - start;
+
+              // Cinepolis returns 301/302/307 redirects normally
+              if ([200, 301, 302, 307].includes(res.status)) {
+                return { status: "UP", statusCode: res.status, responseTime };
+              }
+
+              return { status: "DOWN", statusCode: res.status, responseTime };
+
             } catch (err) {
-              console.error("Request failed:", err.message);
+              return { status: "DOWN", statusCode: 0, responseTime: Date.now() - start };
             }
+          }
+
+          // Try two times (avoid firewall blocking)
+          async function reliableCheck() {
+            let first = await checkSite();
+            if (first.status === "UP") return first;
+            await new Promise(r => setTimeout(r, 2000));
+            return await checkSite();
+          }
+
+          (async () => {
+            const result = await reliableCheck();
 
             await fs.ensureDir(LOG_FOLDER);
 
             let log = [];
             if (await fs.pathExists(ROOT_STATUS_FILE)) {
               try {
-                const content = await fs.readFile(ROOT_STATUS_FILE, "utf8");
-                const parsed = JSON.parse(content);
-                log = Array.isArray(parsed) ? parsed : [];
-              } catch {
-                log = [];
-              }
+                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, 'utf8'));
+              } catch {}
             }
 
             const entry = {
               checked_at: new Date().toISOString(),
-              status,
-              status_code: statusCode,
-              response_time: responseTime
+              status: result.status,
+              status_code: result.statusCode,
+              response_time: result.responseTime
             };
+
             log.push(entry);
 
-            const cutoffTime = Date.now() - LOG_RETENTION_HOURS * 60 * 60 * 1000;
-            log = log.filter(e => new Date(e.checked_at).getTime() >= cutoffTime);
+            const cutoff = Date.now() - LOG_RETENTION_HOURS * 3600 * 1000;
+            log = log.filter(e => new Date(e.checked_at).getTime() >= cutoff);
 
-            const upCount = log.filter(e => e.status === "UP").length;
+            const upCount = log.filter(e => e.status === 'UP').length;
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
             await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
             await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${result.status}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${result.statusCode}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${result.responseTime}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
           })();
           EOF
 
-      # -------------------------------
-      #       UP ALERT (FIRST)
-      # -------------------------------
       - name: Telegram Alert - UP (if previously DOWN)
         if: ${{ env.STATUS == 'UP' }}
         run: |
@@ -111,23 +120,20 @@ jobs:
           PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
 
           if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!*%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (7d):* ${{ env.UPTIME_PERCENT }}%"
+            MSG="✅ *Website is UP!*%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime:* ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
+              -d chat_id="$CHAT_ID" \
+              --data-urlencode "text=$MSG" \
+              -d parse_mode="Markdown"
           fi
 
-      # -------------------------------
-      #       DOWN ALERT (SECOND)
-      # -------------------------------
       - name: Telegram Alert - DOWN
         if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!*%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (7d):* ${{ env.UPTIME_PERCENT }}%"
+          MSG="🚨 *Website DOWN!*%0A*Status:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime:* ${{ env.UPTIME_PERCENT }}%"
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-          -d chat_id="$CHAT_ID" \
-          --data-urlencode "text=$MSG" \
-          -d parse_mode="Markdown"
+            -d chat_id="$CHAT_ID" \
+            --data-urlencode "text=$MSG" \
+            -d parse_mode="Markdown"
