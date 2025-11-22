@@ -1,1 +1,8 @@
-
+[
+  {
+    "checked_at": "2025-11-22T08:28:15.211Z",
+    "status": "DOWN",
+    "status_code": 403,
+    "response_time": 1512
+  }
+]
