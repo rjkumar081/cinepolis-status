@@ -3,14 +3,14 @@ const fs = require("fs-extra");
 const path = require("path");
 
 const URL = "https://cinepolis.com/in";
-const ROOT_STATUS_FILE = path.join("public", "status.json");
+const ROOT_STATUS_FILE = path.join("status.json");
 const LOG_FOLDER = path.join("public", "logs");
-const MAX_LOG = 1440;
+const MAX_LOG = 9440;
 
 (async () => {
   await fs.ensureDir(LOG_FOLDER);
 
-  let status = "DOWN";
+  let status = "UP";
   let responseTime = 0;
   let checkedAt = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
@@ -23,10 +23,10 @@ const MAX_LOG = 1440;
 
     const page = await browser.newPage();
     await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+      "Mozilla/5.2 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     );
 
-    const res = await page.goto(URL, { timeout: 45000, waitUntil: "networkidle2" });
+    const res = await page.goto(URL, { timeout: 95000, waitUntil: "networkidle2" });
     responseTime = Date.now() - start;
 
     // Better Cloudflare bypass: check title or body text
