@@ -32,7 +32,7 @@ const MAX_LOG = 1440;
 
     const content = await page.content();
     if (content.includes("Cinepolis") || content.length > 1000) {
-        status = "UP";
+      status = "UP";
     }
 
     await browser.close();
@@ -40,11 +40,18 @@ const MAX_LOG = 1440;
     console.log("Browser error:", err.message);
   }
 
-  // Load previous log
   let log = [];
-  try { log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || []; } catch {}
+  try {
+    log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
+  } catch {}
 
-  const entry = { checked_at: new Date().toISOString(), status, status_code: statusCode, response_time: responseTime };
+  const entry = {
+    checked_at: new Date().toISOString(),
+    status,
+    status_code: statusCode,
+    response_time: responseTime
+  };
+
   log.push(entry);
   if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
@@ -53,6 +60,7 @@ const MAX_LOG = 1440;
   await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
   await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
+  // Export to GitHub Actions
   fs.appendFileSync(process.env.GITHUB_ENV,
     `STATUS=${status}\n` +
     `STATUS_CODE=${statusCode}\n` +
