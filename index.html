@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cinepolis Status Dashboard</title>
-<!-- Google Fonts for modern look -->
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   body {
     font-family: 'Roboto', sans-serif;
@@ -26,21 +27,10 @@
     z-index: 100;
   }
 
-  header h1 {
-    margin: 0;
-    font-size: 1.8rem;
-  }
+  header h1 { margin:0; font-size: 1.8rem; }
+  #time { font-weight:bold; font-size: 1.2rem; }
 
-  #time {
-    font-weight: bold;
-    font-size: 1.2rem;
-  }
-
-  main {
-    padding: 2rem;
-    max-width: 1000px;
-    margin: auto;
-  }
+  main { padding: 2rem; max-width: 1200px; margin:auto; }
 
   table {
     width: 100%;
@@ -49,36 +39,18 @@
     border-radius: 10px;
     overflow: hidden;
     box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+    margin-bottom: 2rem;
   }
 
-  th, td {
-    padding: 1rem;
-    text-align: left;
-  }
+  th, td { padding: 1rem; text-align: left; }
+  th { background: #007BFF; color: #fff; font-size:1rem; }
+  tr:nth-child(even){ background:#f0f0f0; }
+  .status-up{ color:green; font-weight:bold; }
+  .status-down{ color:red; font-weight:bold; }
 
-  th {
-    background: #007BFF;
-    color: #fff;
-    font-size: 1rem;
-  }
+  canvas{ background: rgba(255,255,255,0.9); border-radius:10px; margin-bottom:2rem; }
 
-  tr:nth-child(even) {
-    background: #f0f0f0;
-  }
-
-  .status-up {
-    color: green;
-    font-weight: bold;
-  }
-
-  .status-down {
-    color: red;
-    font-weight: bold;
-  }
-
-  @media(max-width: 768px){
-    th, td { padding: 0.5rem; font-size: 0.9rem; }
-  }
+  @media(max-width:768px){ th, td{padding:0.5rem;font-size:0.9rem;} }
 </style>
 </head>
 <body>
@@ -101,71 +73,129 @@
       <tr><td colspan="4">Loading status...</td></tr>
     </tbody>
   </table>
+
+  <canvas id="uptimeChart" height="150"></canvas>
+  <canvas id="responseChart" height="150"></canvas>
 </main>
 
 <script>
-// ---------- Time in India ----------
-function updateTime() {
-  const options = { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', day: 'numeric', month: 'short', year: 'numeric' };
+// ---------- Telegram Config ----------
+const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // replace
+const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // replace
+let previousStatus = {};
+
+// ---------- Update IST Time ----------
+function updateTime(){
+  const options = { timeZone:'Asia/Kolkata', hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit', day:'numeric', month:'short', year:'numeric' };
   const now = new Date().toLocaleString('en-IN', options);
   document.getElementById('time').textContent = now + " IST";
 }
 
-// ---------- Status Dashboard ----------
-const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // Replace
-const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // Replace
-let previousStatus = {};
-
-async function sendTelegramMessage(message) {
+// ---------- Telegram Alert ----------
+async function sendTelegramMessage(message){
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
-  try { await fetch(url); } catch(err){ console.error("Telegram send error:", err); }
+  try{ await fetch(url); } catch(err){ console.error("Telegram send error:", err); }
 }
 
-async function loadStatus() {
+// ---------- Charts ----------
+const uptimeCtx = document.getElementById('uptimeChart').getContext('2d');
+const responseCtx = document.getElementById('responseChart').getContext('2d');
+
+let uptimeChart = new Chart(uptimeCtx, {
+  type:'line',
+  data: { labels:[], datasets:[] },
+  options:{
+    responsive:true,
+    plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Uptime % Trend' } },
+    scales:{ y:{ beginAtZero:true, max:100 } }
+  }
+});
+
+let responseChart = new Chart(responseCtx, {
+  type:'line',
+  data: { labels:[], datasets:[] },
+  options:{
+    responsive:true,
+    plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Response Time (ms) Trend' } },
+    scales:{ y:{ beginAtZero:true } }
+  }
+});
+
+// Store history for charts
+let history = {};
+
+// ---------- Load Status ----------
+async function loadStatus(){
   const table = document.getElementById('status-table');
   table.innerHTML = '<tr><td colspan="4">Loading status...</td></tr>';
 
-  try {
-    const response = await fetch('status.json', { cache: "no-store" });
-    if (!response.ok) throw new Error('Failed to fetch status.json');
+  try{
+    const response = await fetch('status.json',{cache:"no-store"});
+    if(!response.ok) throw new Error('Failed to fetch status.json');
     const data = await response.json();
 
     table.innerHTML = '';
-    data.forEach(site => {
+
+    data.forEach(site=>{
       const tr = document.createElement('tr');
-      const statusClass = site.status.toLowerCase() === 'up' ? 'status-up' : 'status-down';
-      tr.innerHTML = `
-        <td>${site.website}</td>
-        <td class="${statusClass}">${site.status}</td>
-        <td>${site.response_time}</td>
-        <td>${site.uptime}</td>
-      `;
+      const statusClass = site.status.toLowerCase()==='up'?'status-up':'status-down';
+      tr.innerHTML = `<td>${site.website}</td>
+                      <td class="${statusClass}">${site.status}</td>
+                      <td>${site.response_time}</td>
+                      <td>${site.uptime}</td>`;
       table.appendChild(tr);
 
-      // Telegram alert for status changes
-      if (previousStatus[site.website] !== site.status) {
-        const oldStatus = previousStatus[site.website] || 'UNKNOWN';
+      // Telegram alert
+      if(previousStatus[site.website]!==site.status){
+        const oldStatus = previousStatus[site.website]||'UNKNOWN';
         previousStatus[site.website] = site.status;
-
-        if (oldStatus !== 'UNKNOWN') {
-          if (site.status.toLowerCase() === 'down') {
+        if(oldStatus!=='UNKNOWN'){
+          if(site.status.toLowerCase()==='down'){
             sendTelegramMessage(`⚠️ ALERT: ${site.website} is DOWN!`);
-          } else if (site.status.toLowerCase() === 'up') {
+          } else if(site.status.toLowerCase()==='up'){
             sendTelegramMessage(`✅ RECOVERY: ${site.website} is back UP!`);
           }
         }
       }
+
+      // History for charts
+      if(!history[site.website]) history[site.website] = {uptime:[], response:[]};
+      history[site.website].uptime.push(parseFloat(site.uptime.replace('%','')));
+      history[site.website].response.push(site.response_time);
+      if(history[site.website].uptime.length>20){ history[site.website].uptime.shift(); history[site.website].response.shift(); }
     });
 
-  } catch(err) {
+    // Update Charts
+    const labels = Array.from({length: history[data[0].website].uptime.length}, (_,i)=>i+1);
+    uptimeChart.data.labels = labels;
+    uptimeChart.data.datasets = data.map(site=>({
+      label: site.website,
+      data: history[site.website].uptime,
+      borderColor: site.status.toLowerCase()==='up'?'green':'red',
+      fill:false,
+      tension:0.3
+    }));
+    uptimeChart.update();
+
+    responseChart.data.labels = labels;
+    responseChart.data.datasets = data.map(site=>({
+      label: site.website,
+      data: history[site.website].response,
+      borderColor: site.status.toLowerCase()==='up'?'blue':'orange',
+      fill:false,
+      tension:0.3
+    }));
+    responseChart.update();
+
+  }catch(err){
     table.innerHTML = `<tr><td colspan="4" style="color:red;">Error loading status.json: ${err.message}</td></tr>`;
     console.error(err);
   }
 }
 
-// ---------- Real-time updates ----------
-setInterval(updateTime, 1000);     // Update IST every second
-setInterval(loadStatus, 5000);     // Update status every 5 seconds
+// ---------- Real-time ----------
+setInterval(updateTime,1000);   // Update IST every second
+setInterval(loadStatus,5000);   // Update status every 5 sec
 updateTime();
 loadStatus();
 </script>
