@@ -5,8 +5,11 @@ const URL = "https://cinepolis.com/in";
 
 (async () => {
   let status = "DOWN";
+  let responseTime = 0;
+  let checkedAt = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
   try {
+    const start = Date.now();
     const browser = await puppeteer.launch({
       headless: "new",
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
@@ -18,9 +21,13 @@ const URL = "https://cinepolis.com/in";
     );
 
     const res = await page.goto(URL, { timeout: 45000, waitUntil: "networkidle2" });
+    responseTime = Date.now() - start;
 
-    const content = await page.content();
-    if (res.status() === 200 && content.includes("Cinepolis")) {
+    const bodyHandle = await page.$("body");
+    const bodyText = await page.evaluate(body => body.innerText, bodyHandle);
+    await bodyHandle.dispose();
+
+    if (res.status() === 200 && bodyText.length > 1000) {
       status = "UP";
     }
 
@@ -29,6 +36,10 @@ const URL = "https://cinepolis.com/in";
     console.log("Browser error:", err.message);
   }
 
-  // Export for GitHub Actions
-  require("fs").appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+  // Export variables for GitHub Actions
+  fs.appendFileSync(process.env.GITHUB_ENV,
+    `STATUS=${status}\n` +
+    `RESPONSE_TIME=${responseTime}\n` +
+    `CHECKED_AT=${checkedAt}\n`
+  );
 })();
