@@ -2,14 +2,14 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
   monitor:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -20,108 +20,126 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install Puppeteer
         run: |
           npm init -y
-          npm install jq fs-extra
+          npm install puppeteer fs-extra
 
-      - name: Check Website Status and Update Status.json (CURL MODE)
-        id: check_site
+      - name: Run Real Browser Check (Puppeteer)
         run: |
           node <<'EOF'
-          const { execSync } = require("child_process");
-          const fs = require("fs-extra");
-          const path = require("path");
+const puppeteer = require("puppeteer");
+const fs = require("fs-extra");
+const path = require("path");
 
-          const ROOT_STATUS_FILE = path.join("public", "status.json");
-          const LOG_FOLDER = path.join("public", "logs");
-          const URL = "https://www.cinepolis.com/in";
-          const MAX_LOG = 1440;
+const URL = "https://www.cinepolis.com/in";
+const ROOT_STATUS_FILE = path.join("public", "status.json");
+const LOG_FOLDER = path.join("public", "logs");
+const MAX_LOG = 1440;
 
-          let status = "DOWN";
-          let statusCode = 0;
-          let responseTime = 0;
+(async () => {
 
-          try {
-            const start = Date.now();
+  await fs.ensureDir(LOG_FOLDER);
 
-            // Curl with Chrome fingerprint (Cloudflare bypass)
-            const cmd =
-              `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
-              `-H "Accept-Language: en-US,en;q=0.9" ` +
-              `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
+  let status = "DOWN";
+  let statusCode = 0;
+  let responseTime = 0;
 
-            const output = execSync(cmd).toString();
-            responseTime = Date.now() - start;
+  try {
+    const start = Date.now();
 
-            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
-            if (match) {
-              statusCode = parseInt(match[1]);
-              if ([200, 301, 302].includes(statusCode)) {
-                status = "UP";
-              }
-            }
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage"
+      ]
+    });
 
-          } catch (err) {
-            console.log("curl error:", err.message);
-          }
+    const page = await browser.newPage();
 
-          // Save log
-          (async () => {
-            await fs.ensureDir(LOG_FOLDER);
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36"
+    );
 
-            let log = [];
-            if (await fs.pathExists(ROOT_STATUS_FILE)) {
-              try {
-                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
-              } catch {
-                log = [];
-              }
-            }
+    const response = await page.goto(URL, { timeout: 25000, waitUntil: "domcontentloaded" });
 
-            const entry = {
-              checked_at: new Date().toISOString(),
-              status,
-              status_code: statusCode,
-              response_time: responseTime
-            };
+    responseTime = Date.now() - start;
+    statusCode = response.status();
 
-            log.push(entry);
-            if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+    if (statusCode >= 200 && statusCode < 400) {
+      status = "UP";
+    }
 
-            const upPct = ((log.filter(e => e.status === "UP").length / log.length) * 100).toFixed(2);
+    await browser.close();
 
-            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+  } catch (err) {
+    console.log("Browser error:", err.message);
+  }
 
-            // Export vars for telegram
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
-          })();
-          EOF
+  // Read existing status log
+  let log = [];
+  try {
+    if (await fs.pathExists(ROOT_STATUS_FILE)) {
+      log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
+    }
+  } catch {
+    log = [];
+  }
+
+  const entry = {
+    checked_at: new Date().toISOString(),
+    status,
+    status_code: statusCode,
+    response_time: responseTime
+  };
+
+  log.push(entry);
+  if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+
+  const upPct = (
+    (log.filter(e => e.status === "UP").length / log.length) * 100
+  ).toFixed(2);
+
+  // Save files
+  await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+  await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+
+  // Export for Telegram
+  require("fs").appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+  require("fs").appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+  require("fs").appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
+  require("fs").appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
+
+})();
+EOF
 
       - name: Telegram Alert - DOWN
         if: ${{ env.STATUS != 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status:* DOWN%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms"
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
             -d parse_mode="Markdown"
 
-      - name: Telegram Alert - UP (if previously DOWN)
+      - name: Telegram Alert - UP
         if: ${{ env.STATUS == 'UP' }}
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
-          
+
+          if [ -f public/status.json ]; then
+            PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
+          else
+            PREV_STATUS="UP"
+          fi
+
           if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+            MSG="✅ *Website is UP!*%0AStatus Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
               -d chat_id="$CHAT_ID" \
               --data-urlencode "text=$MSG" \
