@@ -5,13 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cinepolis Status Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
-<!-- Chart.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   body {
     font-family: 'Roboto', sans-serif;
     margin: 0;
-    background: linear-gradient(to right, #1f4037, #99f2c8);
+    transition: background 0.5s;
     color: #333;
   }
 
@@ -79,12 +78,13 @@
 </main>
 
 <script>
-// ---------- Telegram Config ----------
+// ---------- Config ----------
 const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // replace
 const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // replace
 let previousStatus = {};
+let history = {};
 
-// ---------- Update IST Time ----------
+// ---------- Time ----------
 function updateTime(){
   const options = { timeZone:'Asia/Kolkata', hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit', day:'numeric', month:'short', year:'numeric' };
   const now = new Date().toLocaleString('en-IN', options);
@@ -101,28 +101,27 @@ async function sendTelegramMessage(message){
 const uptimeCtx = document.getElementById('uptimeChart').getContext('2d');
 const responseCtx = document.getElementById('responseChart').getContext('2d');
 
-let uptimeChart = new Chart(uptimeCtx, {
+let uptimeChart = new Chart(uptimeCtx,{
   type:'line',
-  data: { labels:[], datasets:[] },
+  data:{ labels:[], datasets:[] },
   options:{
     responsive:true,
+    animation:{ duration:500 },
     plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Uptime % Trend' } },
     scales:{ y:{ beginAtZero:true, max:100 } }
   }
 });
 
-let responseChart = new Chart(responseCtx, {
+let responseChart = new Chart(responseCtx,{
   type:'line',
-  data: { labels:[], datasets:[] },
+  data:{ labels:[], datasets:[] },
   options:{
     responsive:true,
+    animation:{ duration:500 },
     plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Response Time (ms) Trend' } },
     scales:{ y:{ beginAtZero:true } }
   }
 });
-
-// Store history for charts
-let history = {};
 
 // ---------- Load Status ----------
 async function loadStatus(){
@@ -136,6 +135,7 @@ async function loadStatus(){
 
     table.innerHTML = '';
 
+    let allUp = true; // for dynamic background
     data.forEach(site=>{
       const tr = document.createElement('tr');
       const statusClass = site.status.toLowerCase()==='up'?'status-up':'status-down';
@@ -145,10 +145,12 @@ async function loadStatus(){
                       <td>${site.uptime}</td>`;
       table.appendChild(tr);
 
+      if(site.status.toLowerCase()==='down') allUp=false;
+
       // Telegram alert
       if(previousStatus[site.website]!==site.status){
         const oldStatus = previousStatus[site.website]||'UNKNOWN';
-        previousStatus[site.website] = site.status;
+        previousStatus[site.website]=site.status;
         if(oldStatus!=='UNKNOWN'){
           if(site.status.toLowerCase()==='down'){
             sendTelegramMessage(`⚠️ ALERT: ${site.website} is DOWN!`);
@@ -159,14 +161,21 @@ async function loadStatus(){
       }
 
       // History for charts
-      if(!history[site.website]) history[site.website] = {uptime:[], response:[]};
+      if(!history[site.website]) history[site.website]={uptime:[], response:[]};
       history[site.website].uptime.push(parseFloat(site.uptime.replace('%','')));
       history[site.website].response.push(site.response_time);
-      if(history[site.website].uptime.length>20){ history[site.website].uptime.shift(); history[site.website].response.shift(); }
+      if(history[site.website].uptime.length>20){
+        history[site.website].uptime.shift();
+        history[site.website].response.shift();
+      }
     });
 
-    // Update Charts
-    const labels = Array.from({length: history[data[0].website].uptime.length}, (_,i)=>i+1);
+    // Dynamic background based on status
+    document.body.style.background = allUp ? 'linear-gradient(to right, #1f4037, #99f2c8)' : 'linear-gradient(to right, #b71c1c, #f44336)';
+
+    // Update charts
+    const labels = Array.from({length:history[data[0].website].uptime.length},(_,i)=>i+1);
+
     uptimeChart.data.labels = labels;
     uptimeChart.data.datasets = data.map(site=>({
       label: site.website,
@@ -193,9 +202,9 @@ async function loadStatus(){
   }
 }
 
-// ---------- Real-time ----------
+// ---------- Real-time Updates ----------
 setInterval(updateTime,1000);   // Update IST every second
-setInterval(loadStatus,5000);   // Update status every 5 sec
+setInterval(loadStatus,3000);   // Update status every 3 seconds
 updateTime();
 loadStatus();
 </script>
