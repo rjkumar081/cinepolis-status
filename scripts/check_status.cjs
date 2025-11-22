@@ -2,7 +2,7 @@ const puppeteer = require("puppeteer");
 const fs = require("fs-extra");
 const path = require("path");
 
-const URL = "https://www.cinepolis.com/in";
+const URL = "https://cinepolis.com/in";
 const ROOT_STATUS_FILE = path.join("public", "status.json");
 const LOG_FOLDER = path.join("public", "logs");
 const MAX_LOG = 1440; // keep last 24 hours logs
