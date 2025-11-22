@@ -37,12 +37,13 @@
 
 <script>
 // Telegram bot details
-const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // replace
-const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // replace
+const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // replace with your bot token
+const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // replace with your chat id
 
-// To keep track of previous status
+// Keep track of previous statuses
 let previousStatus = {};
 
+// Function to send Telegram message
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
   try {
@@ -52,6 +53,7 @@ async function sendTelegramMessage(message) {
   }
 }
 
+// Load status.json and update table
 async function loadStatus() {
   const table = document.getElementById('status-table');
   table.innerHTML = '<tr><td colspan="4">Loading status...</td></tr>';
@@ -74,11 +76,17 @@ async function loadStatus() {
       `;
       table.appendChild(tr);
 
-      // Telegram alert if status changed to DOWN
+      // Check for status change and send alert
       if (previousStatus[site.website] !== site.status) {
+        const oldStatus = previousStatus[site.website] || 'UNKNOWN';
         previousStatus[site.website] = site.status;
-        if (site.status.toLowerCase() === 'down') {
-          sendTelegramMessage(`⚠️ Alert: ${site.website} is DOWN!`);
+
+        if (oldStatus !== 'UNKNOWN') {
+          if (site.status.toLowerCase() === 'down') {
+            sendTelegramMessage(`⚠️ ALERT: ${site.website} is DOWN!`);
+          } else if (site.status.toLowerCase() === 'up') {
+            sendTelegramMessage(`✅ RECOVERY: ${site.website} is back UP!`);
+          }
         }
       }
     });
