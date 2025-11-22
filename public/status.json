@@ -16,5 +16,11 @@
     "status": "DOWN",
     "status_code": 403,
     "response_time": 1260
+  },
+  {
+    "checked_at": "2025-11-22T08:36:29.192Z",
+    "status": "DOWN",
+    "status_code": 403,
+    "response_time": 1287
   }
 ]
