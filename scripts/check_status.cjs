@@ -5,7 +5,7 @@ const path = require("path");
 const URL = "https://www.cinepolis.com/in";
 const ROOT_STATUS_FILE = path.join("public", "status.json");
 const LOG_FOLDER = path.join("public", "logs");
-const MAX_LOG = 1440; // keep last 24 hours (10 min interval)
+const MAX_LOG = 1440; // keep last 24 hours logs
 
 (async () => {
   await fs.ensureDir(LOG_FOLDER);
@@ -29,7 +29,6 @@ const MAX_LOG = 1440; // keep last 24 hours (10 min interval)
     const res = await page.goto(URL, { timeout: 30000, waitUntil: "domcontentloaded" });
     responseTime = Date.now() - start;
     statusCode = res.status();
-
     if (statusCode >= 200 && statusCode < 400) status = "UP";
 
     await browser.close();
