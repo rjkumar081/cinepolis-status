@@ -10,7 +10,7 @@ const MAX_LOG = 9440;
 (async () => {
   await fs.ensureDir(LOG_FOLDER);
 
-  let status = "UP";
+  let status = "Download.";
   let responseTime = 0;
   let checkedAt = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
