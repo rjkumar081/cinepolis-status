@@ -20,19 +20,13 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: |
-          npm init -y
-          npm install fs-extra
-
       - name: Check Website Status and Update status.json
-        id: check_site
         shell: bash
         run: |
           node -e "
-const fs = require('fs-extra');
-const { execSync } = require('child_process');
+const fs = require('fs').promises;
 const path = require('path');
+const { execSync } = require('child_process');
 
 const ROOT_STATUS_FILE = path.join('public','status.json');
 const LOG_FOLDER = path.join('public','logs');
@@ -41,21 +35,19 @@ const MAX_LOG = 1440;
 const FAILURE_TOLERANCE = 1;
 
 (async () => {
-  await fs.ensureDir(LOG_FOLDER);
+  await fs.mkdir(LOG_FOLDER, { recursive: true });
 
   let status='DOWN', statusCode=0, responseTime=0;
   try {
-    const start=Date.now();
+    const start = Date.now();
     const cmd = \`curl -L -s -o /dev/null -w \"%{http_code}\" -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' --connect-timeout 15 --max-time 25 ${URL}\`;
-    statusCode=parseInt(execSync(cmd).toString());
-    responseTime=Date.now()-start;
+    statusCode = parseInt(execSync(cmd).toString());
+    responseTime = Date.now() - start;
     if(statusCode>=200 && statusCode<400) status='UP';
   } catch(e){ console.log('curl error:', e.message); }
 
-  let log = [];
-  if(await fs.pathExists(ROOT_STATUS_FILE)){
-    try { log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE,'utf8')) || []; } catch{ log=[]; }
-  }
+  let log=[];
+  try { log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE,'utf8')) || []; } catch {}
 
   const entry = { checked_at: new Date().toISOString(), status, status_code: statusCode, response_time: responseTime };
   log.push(entry);
@@ -65,13 +57,14 @@ const FAILURE_TOLERANCE = 1;
   const failCount = recent.filter(e => e.status!=='UP').length;
   const finalStatus = (failCount > FAILURE_TOLERANCE)?'DOWN':'UP';
 
-  const upPct = ((log.filter(e=>e.status==='UP').length/log.length)*100).toFixed(2);
+  const upPct = ((log.filter(e => e.status==='UP').length/log.length)*100).toFixed(2);
 
-  await fs.writeJson(ROOT_STATUS_FILE, log, {spaces:2});
-  await fs.writeJson(path.join(LOG_FOLDER,\`\${Date.now()}.json\`), entry, {spaces:2});
+  await fs.writeFile(ROOT_STATUS_FILE, JSON.stringify(log,null,2));
+  await fs.writeFile(path.join(LOG_FOLDER, \`\${Date.now()}.json\`), JSON.stringify(entry,null,2));
 
-  const envData = \`STATUS=${finalStatus}\nSTATUS_CODE=${statusCode}\nUPTIME_PERCENT=${upPct}\nRESPONSE_TIME=${responseTime}\n\`;
-  require('fs').appendFileSync(process.env.GITHUB_ENV, envData);
+  require('fs').appendFileSync(process.env.GITHUB_ENV,
+    \`STATUS=${finalStatus}\nSTATUS_CODE=${statusCode}\nUPTIME_PERCENT=${upPct}\nRESPONSE_TIME=${responseTime}\n\`
+  );
 })();
 "
 
@@ -91,7 +84,6 @@ const FAILURE_TOLERANCE = 1;
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-
           if [ -f public/status.json ]; then
             PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
           else
@@ -100,7 +92,6 @@ const FAILURE_TOLERANCE = 1;
           if [ -z "$PREV_STATUS" ]; then
             PREV_STATUS="UP"
           fi
-
           if [ "$PREV_STATUS" != "UP" ]; then
             MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
