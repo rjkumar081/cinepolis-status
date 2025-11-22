@@ -18,7 +18,7 @@ jobs:
       - name: Install Node & Puppeteer
         run: |
           npm init -y
-          npm install puppeteer fs-extra
+          npm install puppeteer fs-extra jq
 
       - name: Run Real Browser Check
         run: node scripts/check_status.cjs
