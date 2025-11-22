@@ -1,8 +1,8 @@
-name: Cinepolis Real Browser Monitor
+name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/10 * * * *"  # every 10 minutes
   workflow_dispatch:
 
 jobs:
@@ -25,12 +25,24 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          if [ "${{ env.STATUS }}" = "UP" ]; then
-            MSG="✅ Cinepolis Website is UP! ✅%0AURL: https://cinepolis.com/in%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AChecked At: ${{ env.CHECKED_AT }}"
-          else
-            MSG="🚨 Cinepolis Website is DOWN! 🚨%0AURL: https://cinepolis.com/in%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AChecked At: ${{ env.CHECKED_AT }}"
+
+          PREV_STATUS="UP"
+          if [ -f public/status.json ]; then
+            PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
           fi
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
+
+          if [ "${{ env.STATUS }}" = "UP" ]; then
+            if [ "$PREV_STATUS" != "UP" ]; then
+              MSG="✅ Cinepolis Website is UP! ✅%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%%%0AChecked At: ${{ env.CHECKED_AT }}"
+            else
+              MSG=""
+            fi
+          else
+            MSG="🚨 Cinepolis Website is DOWN! 🚨%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%%%0AChecked At: ${{ env.CHECKED_AT }}"
+          fi
+
+          if [ ! -z "$MSG" ]; then
+            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              --data-urlencode "text=$MSG" \
+              -d parse_mode="Markdown"
