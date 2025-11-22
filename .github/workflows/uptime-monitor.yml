@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/10 * * * *"   # every 10 minutes
   workflow_dispatch:
 
 jobs:
@@ -28,6 +28,7 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+
           MSG="🚨 *Website DOWN!*%0AURL: https://www.cinepolis.com/in%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
@@ -39,11 +40,15 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+
+          # Get previous status
           if [ -f public/status.json ]; then
             PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
           else
             PREV_STATUS="UP"
           fi
+
+          # Send UP alert only if previously DOWN
           if [ "$PREV_STATUS" != "UP" ]; then
             MSG="✅ Website UP!%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
