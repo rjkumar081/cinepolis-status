@@ -23,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install jq fs-extra
+          npm install fs-extra
 
-      - name: Check Website Status and Update Status.json (CURL MODE)
+      - name: Check Website Status and Update status.json
         id: check_site
         run: |
           node <<'EOF'
@@ -45,28 +45,19 @@ jobs:
           try {
             const start = Date.now();
 
-            // Curl with Chrome fingerprint (Cloudflare bypass)
-            const cmd =
-              `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
-              `-H "Accept-Language: en-US,en;q=0.9" ` +
-              `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
-
-            const output = execSync(cmd).toString();
+            // curl with redirects and user-agent
+            const cmd = `curl -L -s -o /dev/null -w "%{http_code}" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" --connect-timeout 15 --max-time 25 ${URL}`;
+            statusCode = parseInt(execSync(cmd).toString());
             responseTime = Date.now() - start;
 
-            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
-            if (match) {
-              statusCode = parseInt(match[1]);
-              if ([200, 301, 302].includes(statusCode)) {
-                status = "UP";
-              }
+            if (statusCode >= 200 && statusCode < 400) {
+              status = "UP";
             }
 
           } catch (err) {
             console.log("curl error:", err.message);
           }
 
-          // Save log
           (async () => {
             await fs.ensureDir(LOG_FOLDER);
 
@@ -118,7 +109,7 @@ jobs:
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
+          PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json || echo "UP")
           
           if [ "$PREV_STATUS" != "UP" ]; then
             MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
