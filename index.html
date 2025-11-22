@@ -3,171 +3,130 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cinepolis Status Dashboard</title>
-<!-- Google Fonts for modern look -->
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+<title>Cinepolis Uptime Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  body {
-    font-family: 'Roboto', sans-serif;
-    margin: 0;
-    background: linear-gradient(to right, #1f4037, #99f2c8);
-    color: #333;
-  }
-
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 2rem;
-    background: rgba(0,0,0,0.7);
-    color: #fff;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  header h1 {
-    margin: 0;
-    font-size: 1.8rem;
-  }
-
-  #time {
-    font-weight: bold;
-    font-size: 1.2rem;
-  }
-
-  main {
-    padding: 2rem;
-    max-width: 1000px;
-    margin: auto;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    background: rgba(255,255,255,0.9);
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-  }
-
-  th, td {
-    padding: 1rem;
-    text-align: left;
-  }
-
-  th {
-    background: #007BFF;
-    color: #fff;
-    font-size: 1rem;
-  }
-
-  tr:nth-child(even) {
-    background: #f0f0f0;
-  }
-
-  .status-up {
-    color: green;
-    font-weight: bold;
-  }
-
-  .status-down {
-    color: red;
-    font-weight: bold;
-  }
-
-  @media(max-width: 768px){
-    th, td { padding: 0.5rem; font-size: 0.9rem; }
-  }
+  body { font-family: Arial, sans-serif; transition: background 0.5s; color: #fff; padding: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th, td { padding: 10px; text-align: left; }
+  th { background: rgba(0,0,0,0.3); }
+  .status-up { color: #00ff00; font-weight: bold; }
+  .status-down { color: #ff4444; font-weight: bold; }
+  #time { font-size: 1.2em; margin-bottom: 20px; }
+  canvas { background: rgba(0,0,0,0.2); border-radius: 8px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Cinepolis Status Dashboard</h1>
-  <div id="time">Loading Time...</div>
-</header>
 
-<main>
-  <table>
-    <thead>
-      <tr>
-        <th>Website</th>
-        <th>Status</th>
-        <th>Response Time (ms)</th>
-        <th>Uptime %</th>
-      </tr>
-    </thead>
-    <tbody id="status-table">
-      <tr><td colspan="4">Loading status...</td></tr>
-    </tbody>
-  </table>
-</main>
+<h1>Cinepolis Uptime Dashboard</h1>
+<div id="time"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Website</th>
+      <th>Status</th>
+      <th>Response Time (ms)</th>
+      <th>Uptime %</th>
+    </tr>
+  </thead>
+  <tbody id="status-table">
+    <tr><td colspan="4">Loading...</td></tr>
+  </tbody>
+</table>
+
+<canvas id="uptimeChart" height="100"></canvas>
+<canvas id="responseChart" height="100" style="margin-top:20px;"></canvas>
 
 <script>
-// ---------- Time in India ----------
-function updateTime() {
-  const options = { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', day: 'numeric', month: 'short', year: 'numeric' };
-  const now = new Date().toLocaleString('en-IN', options);
-  document.getElementById('time').textContent = now + " IST";
-}
-
-// ---------- Status Dashboard ----------
-const TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"; // Replace
-const TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"; // Replace
-let previousStatus = {};
-
-async function sendTelegramMessage(message) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
-  try { await fetch(url); } catch(err){ console.error("Telegram send error:", err); }
-}
+const FAILURE_TOLERANCE = 1; // matches workflow
 
 async function loadStatus() {
   const table = document.getElementById('status-table');
-  table.innerHTML = '<tr><td colspan="4">Loading status...</td></tr>';
+  table.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
 
   try {
-    const response = await fetch('status.json', { cache: "no-store" });
-    if (!response.ok) throw new Error('Failed to fetch status.json');
-    const data = await response.json();
+    const response = await fetch('status.json', {cache:"no-store"});
+    const log = await response.json();
 
-    table.innerHTML = '';
-    data.forEach(site => {
-      const tr = document.createElement('tr');
-      const statusClass = site.status.toLowerCase() === 'up' ? 'status-up' : 'status-down';
-      tr.innerHTML = `
-        <td>${site.website}</td>
-        <td class="${statusClass}">${site.status}</td>
-        <td>${site.response_time}</td>
-        <td>${site.uptime}</td>
-      `;
-      table.appendChild(tr);
+    if (!log.length) return;
 
-      // Telegram alert for status changes
-      if (previousStatus[site.website] !== site.status) {
-        const oldStatus = previousStatus[site.website] || 'UNKNOWN';
-        previousStatus[site.website] = site.status;
+    // Apply failure tolerance
+    const recent = log.slice(-FAILURE_TOLERANCE-1);
+    const failCount = recent.filter(e => e.status !== "UP").length;
+    const finalStatus = (failCount > FAILURE_TOLERANCE) ? "DOWN" : "UP";
 
-        if (oldStatus !== 'UNKNOWN') {
-          if (site.status.toLowerCase() === 'down') {
-            sendTelegramMessage(`⚠️ ALERT: ${site.website} is DOWN!`);
-          } else if (site.status.toLowerCase() === 'up') {
-            sendTelegramMessage(`✅ RECOVERY: ${site.website} is back UP!`);
-          }
-        }
-      }
-    });
+    // Latest entry
+    const latest = log[log.length-1];
+    const statusClass = finalStatus.toLowerCase() === 'up' ? 'status-up' : 'status-down';
+    table.innerHTML = `<tr>
+      <td>${latest.website || 'Website'}</td>
+      <td class="${statusClass}">${finalStatus}</td>
+      <td>${latest.response_time}</td>
+      <td>${((log.filter(e => e.status==="UP").length/log.length)*100).toFixed(2)}%</td>
+    </tr>`;
+
+    // Dynamic background
+    document.body.style.background = finalStatus==='UP' 
+      ? 'linear-gradient(to right, #1f4037, #99f2c8)' 
+      : 'linear-gradient(to right, #b71c1c, #f44336)';
+
+    // Charts
+    const lastN = 20;
+    const recentLogs = log.slice(-lastN);
+    const labels = recentLogs.map((e,i)=>i+1);
+    
+    uptimeChart.data.labels = labels;
+    uptimeChart.data.datasets = [{
+      label: 'Uptime %',
+      data: recentLogs.map(e => e.status==='UP'?100:0),
+      borderColor: 'lime',
+      fill:false,
+      tension:0.3
+    }];
+    uptimeChart.update();
+
+    responseChart.data.labels = labels;
+    responseChart.data.datasets = [{
+      label: 'Response Time (ms)',
+      data: recentLogs.map(e => e.response_time),
+      borderColor: 'cyan',
+      fill:false,
+      tension:0.3
+    }];
+    responseChart.update();
 
   } catch(err) {
-    table.innerHTML = `<tr><td colspan="4" style="color:red;">Error loading status.json: ${err.message}</td></tr>`;
+    table.innerHTML = `<tr><td colspan="4" style="color:red;">Error loading status.json</td></tr>`;
     console.error(err);
   }
 }
 
-// ---------- Real-time updates ----------
-setInterval(updateTime, 1000);     // Update IST every second
-setInterval(loadStatus, 5000);     // Update status every 5 seconds
-updateTime();
+// India time display
+function updateTime() {
+  const now = new Date();
+  const indiaTime = now.toLocaleString("en-IN", {timeZone: "Asia/Kolkata"});
+  document.getElementById('time').innerText = `India Time: ${indiaTime}`;
+}
+
+// Initialize charts
+const uptimeChart = new Chart(document.getElementById('uptimeChart').getContext('2d'), {
+  type:'line',
+  data:{labels:[], datasets:[]},
+  options:{responsive:true, plugins:{legend:{display:true}}}
+});
+const responseChart = new Chart(document.getElementById('responseChart').getContext('2d'), {
+  type:'line',
+  data:{labels:[], datasets:[]},
+  options:{responsive:true, plugins:{legend:{display:true}}}
+});
+
+// Refresh
+setInterval(loadStatus, 5000);
+setInterval(updateTime, 1000);
 loadStatus();
+updateTime();
 </script>
+
 </body>
 </html>
