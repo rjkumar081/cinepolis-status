@@ -29,7 +29,7 @@ jobs:
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
 
-          MSG="🚨 *Website DOWN!*%0AURL: https://www.cinepolis.com/in%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
+          MSG="🚨 *Website DOWN!*%0AURL: https://cinepolis.com/in%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
@@ -50,7 +50,7 @@ jobs:
 
           # Send UP alert only if previously DOWN
           if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ Website UP!%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
+            MSG="✅ Website UP!%0AURL: https://cinepolis.com/in%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
               -d chat_id="$CHAT_ID" \
               --data-urlencode "text=$MSG" \
