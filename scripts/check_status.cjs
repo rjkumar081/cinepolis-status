@@ -60,7 +60,6 @@ const MAX_LOG = 1440;
   await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
   await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-  // Export to GitHub Actions
   fs.appendFileSync(process.env.GITHUB_ENV,
     `STATUS=${status}\n` +
     `STATUS_CODE=${statusCode}\n` +
