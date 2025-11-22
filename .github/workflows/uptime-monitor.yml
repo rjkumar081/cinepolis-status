@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "* * * * *"   # every minute
+    - cron: "*/10 * * * *"   # every 10 minutes
   workflow_dispatch:
 
 jobs:
@@ -29,72 +29,93 @@ jobs:
         id: check_site
         run: |
           node <<'EOF'
-          const puppeteer = require('puppeteer');
-          const fs = require('fs-extra');
-          const path = require('path');
+          const puppeteer = require("puppeteer");
+          const fs = require("fs-extra");
+          const path = require("path");
 
-          const ROOT_STATUS_FILE = path.join('public','status.json');   // root for frontend
-          const LOG_FOLDER = path.join('public','logs');               // backup folder
-          const URL = 'https://www.cinepolis.com/in';
+          const ROOT_STATUS_FILE = path.join("public", "status.json");
+          const LOG_FOLDER = path.join("public", "logs");
+          const URL = "https://www.cinepolis.com/in";
           const MAX_LOG = 1440;
 
           (async () => {
-            let status = 'DOWN';
+            let status = "DOWN";
             let statusCode = 0;
             let responseTime = 0;
 
             try {
-              const start = Date.now();
               const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
+                headless: false, // bypass Cloudflare
+                args: [
+                  "--no-sandbox",
+                  "--disable-setuid-sandbox",
+                  "--disable-dev-shm-usage",
+                  "--disable-blink-features=AutomationControlled"
+                ]
               });
+
               const page = await browser.newPage();
-              const res = await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
+
+              // Fake human browser
+              await page.setUserAgent(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+              );
+              await page.setExtraHTTPHeaders({
+                "Accept-Language": "en-US,en;q=0.9"
+              });
+              await page.evaluateOnNewDocument(() => {
+                Object.defineProperty(navigator, "webdriver", {
+                  get: () => false,
+                });
+              });
+
+              const start = Date.now();
+              const res = await page.goto(URL, {
+                waitUntil: "domcontentloaded",
+                timeout: 60000
+              });
               responseTime = Date.now() - start;
-              if (res && res.status() === 200) status = 'UP';
-              statusCode = res ? res.status() : 0;
+
+              if (res) {
+                statusCode = res.status();
+                if ([200, 301, 302].includes(statusCode)) {
+                  status = "UP";
+                }
+              }
+
               await browser.close();
             } catch (err) {
-              console.error('Error accessing site:', err.message);
+              console.log("Puppeteer error:", err.message);
             }
 
-            // Ensure logs folder exists
+            // Logging (unchanged)
             await fs.ensureDir(LOG_FOLDER);
 
-            // Read existing log
             let log = [];
             if (await fs.pathExists(ROOT_STATUS_FILE)) {
               try {
-                const content = await fs.readFile(ROOT_STATUS_FILE, 'utf8');
-                const parsed = JSON.parse(content);
-                log = Array.isArray(parsed) ? parsed : [];
+                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
               } catch {
                 log = [];
               }
             }
 
-            // Add new entry
             const entry = {
               checked_at: new Date().toISOString(),
-              status: status,
+              status,
               status_code: statusCode,
               response_time: responseTime
             };
-            log.push(entry);
 
-            // Keep last MAX_LOG entries
+            log.push(entry);
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-            // Calculate uptime %
-            const upCount = log.filter(e => e.status === 'UP').length;
+            const upCount = log.filter(e => e.status === "UP").length;
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
 
-            // Save log
             await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
             await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            // Export variables for Telegram
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
             fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${uptimePercent}\n`);
