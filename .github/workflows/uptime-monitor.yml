@@ -1,65 +1,63 @@
-name: Cinepolis Uptime Monitor
+const puppeteer = require("puppeteer");
+const fs = require("fs-extra");
+const path = require("path");
 
-on:
-  schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
-  workflow_dispatch:
+const URL = "https://cinepolis.com/in";
+const ROOT_STATUS_FILE = path.join("public", "status.json");
+const LOG_FOLDER = path.join("public", "logs");
+const MAX_LOG = 1440;
 
-jobs:
-  monitor:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+(async () => {
+  await fs.ensureDir(LOG_FOLDER);
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+  let status = "DOWN";
+  let statusCode = 0;
+  let responseTime = 0;
 
-      - name: Install Node & Puppeteer
-        run: |
-          npm init -y
-          npm install puppeteer fs-extra jq
+  try {
+    const start = Date.now();
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
 
-      - name: Run Real Browser Check
-        run: node scripts/check_status.cjs
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    );
 
-      - name: Telegram DOWN Alert
-        if: ${{ env.STATUS != 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+    const res = await page.goto(URL, { timeout: 45000, waitUntil: "networkidle2" });
+    responseTime = Date.now() - start;
+    statusCode = res.status();
 
-          MSG="🚨 *Website DOWN!*%0AURL: https://cinepolis.com/in%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
+    // Check content to bypass Cloudflare false 403
+    const content = await page.content();
+    if (content.includes("Cinepolis") || content.length > 1000) {
+        status = "UP";
+    }
 
-      - name: Telegram UP Recovery Alert
-        if: ${{ env.STATUS == 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+    await browser.close();
+  } catch (err) {
+    console.log("Browser error:", err.message);
+  }
 
-          # Get previous status
-          if [ -f public/status.json ]; then
-            PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
-          else
-            PREV_STATUS="UP"
-          fi
+  // Load previous log
+  let log = [];
+  try { log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || []; } catch {}
 
-          # Send UP alert only if previously DOWN
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ Website UP!%0AURL: https://cinepolis.com/in%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
-            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              --data-urlencode "text=$MSG" \
-              -d parse_mode="Markdown"
+  const entry = { checked_at: new Date().toISOString(), status, status_code: statusCode, response_time: responseTime };
+  log.push(entry);
+  if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-      - name: Commit Updated Status
-        run: |
-          git config --local user.name "github-actions"
-          git config --local user.email "actions@github.com"
-          git add public/status.json public/logs/*.json
-          git commit -m "Update website status" || echo "No changes"
-          git push
+  const upPct = ((log.filter(e => e.status === "UP").length / log.length) * 100).toFixed(2);
+
+  await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+  await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+
+  fs.appendFileSync(process.env.GITHUB_ENV,
+    `STATUS=${status}\n` +
+    `STATUS_CODE=${statusCode}\n` +
+    `RESPONSE_TIME=${responseTime}\n` +
+    `UPTIME_PERCENT=${upPct}\n`
+  );
+})();
