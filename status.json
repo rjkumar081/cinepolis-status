@@ -1,1 +1,15 @@
 
+[
+  {
+    "website": "https://cinepolis.com",
+    "status": "UP",
+    "response_time": 120,
+    "uptime": "99.9%"
+  },
+  {
+    "website": "https://cinepolis.com/movies",
+    "status": "DOWN",
+    "response_time": 0,
+    "uptime": "97.5%"
+  }
+]
