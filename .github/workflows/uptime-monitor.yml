@@ -1,62 +1,36 @@
-name: Cinepolis Uptime Monitor
+name: Cinepolis Real Browser Check
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"  # every 10 minutes
   workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Install Node & Puppeteer
         run: |
           npm init -y
-          npm install puppeteer fs-extra jq
+          npm install puppeteer fs-extra
 
       - name: Run Real Browser Check
         run: node scripts/check_status.cjs
 
-      - name: Telegram DOWN Alert
-        if: ${{ env.STATUS != 'UP' }}
+      - name: Telegram Alert
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!*%0AURL: https://cinepolis.com/in%0AStatus: ${{ env.STATUS_CODE }}%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
+          if [ "${{ env.STATUS }}" = "UP" ]; then
+            MSG="✅ Cinepolis Website is UP! ✅%0AURL: https://cinepolis.com/in"
+          else
+            MSG="🚨 Cinepolis Website is DOWN! 🚨%0AURL: https://cinepolis.com/in"
+          fi
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
             -d parse_mode="Markdown"
-
-      - name: Telegram UP Recovery Alert
-        if: ${{ env.STATUS == 'UP' }}
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-
-          if [ -f public/status.json ]; then
-            PREV_STATUS=$(jq -r '.[-2].status // "UP"' public/status.json)
-          else
-            PREV_STATUS="UP"
-          fi
-
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ Website UP!%0AURL: https://cinepolis.com/in%0AResponse: ${{ env.RESPONSE_TIME }}ms%0AUptime: ${{ env.UPTIME_PERCENT }}%"
-            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              --data-urlencode "text=$MSG" \
-              -d parse_mode="Markdown"
-
-      - name: Commit Updated Status
-        run: |
-          git config --local user.name "github-actions"
-          git config --local user.email "actions@github.com"
-          git add public/status.json public/logs/*.json
-          git commit -m "Update website status" || echo "No changes"
-          git push
