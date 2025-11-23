@@ -1,93 +1,99 @@
 const puppeteer = require("puppeteer");
-const fs = require("fs");
-const path = require("path");
-const https = require("https");
+const fs = require("fs-extra");
+const axios = require("axios");
+
+const URL = "https://cinepolis.com/in";
+const STATUS_FILE = "status.json";
+const LOG_FILE = "public/logs/log.json";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-function sendTelegram(message) {
-  return new Promise((resolve, reject) => {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
-
-    https.get(url, (res) => {
-      res.on("data", () => {});
-      res.on("end", resolve);
-    }).on("error", reject);
-  });
-}
-
-async function checkSite() {
-  const url = "https://www.cinepolis.com/in";
-  const start = Date.now();
-
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const page = await browser.newPage();
-
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-    "Chrome/123.0.0.0 Safari/537.36"
-  );
+(async () => {
+  let browser;
+  let finalStatus = "DOWN";
+  let responseTime = 0;
+  let realDown = false;
 
   try {
-    const response = await page.goto(url, {
-      waitUntil: "networkidle2",
-      timeout: 30000
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
-    const responseTime = Date.now() - start;
-    const statusCode = response.status();
+    const page = await browser.newPage();
+
+    const start = Date.now();
+    const res = await page.goto(URL, { timeout: 30000, waitUntil: "domcontentloaded" });
+    responseTime = Date.now() - start;
+
+    const html = await page.content();
+
+    // ------------------------------
+    // Detect Cloudflare Firewall Page
+    // ------------------------------
+    const isCloudflareBlocked =
+      html.includes("Checking your browser before accessing") ||
+      html.includes("cf-browser-verification") ||
+      html.includes("cloudflare") ||
+      html.includes("Attention Required!");
+
+    // ------------------------------
+    // Detect actual Cinepolis homepage
+    // ------------------------------
+    const isHomepage =
+      html.includes("Cinépolis") ||
+      html.includes("movies") ||
+      html.includes("theatre") ||
+      html.includes("cinepolis");
+
+    if (isHomepage) {
+      finalStatus = "UP";
+    } else if (isCloudflareBlocked) {
+      finalStatus = "UP"; // Cloudflare blocked us but website itself is UP
+    } else {
+      realDown = true;
+      finalStatus = "DOWN";
+    }
+
+    // Save screenshot for debugging when page not detected
+    if (!isHomepage) {
+      await page.screenshot({ path: "public/logs/latest_screenshot.png" });
+    }
 
     await browser.close();
-
-    return {
-      status: [200, 301, 302, 307].includes(statusCode) ? "UP" : "DOWN",
-      statusCode,
-      responseTime,
-      checked_at: new Date().toISOString()
-    };
-  } catch (err) {
-    await browser.close();
-    return {
-      status: "DOWN",
-      statusCode: 0,
-      responseTime: Date.now() - start,
-      checked_at: new Date().toISOString()
-    };
-  }
-}
-
-(async () => {
-  const result = await checkSite();
-
-  // Send alert
-  if (result.status === "DOWN") {
-    await sendTelegram(`❌ Cinepolis DOWN\nStatus: ${result.statusCode}\nTime: ${result.responseTime}ms`);
-  } else {
-    await sendTelegram(`✅ Cinepolis UP (${result.statusCode})\nResponse: ${result.responseTime}ms`);
+  } catch (error) {
+    realDown = true;
+    finalStatus = "DOWN";
   }
 
-  // Save logs
-  const outputPath = path.join("public", "status.json");
-  let history = [];
+  // ------------------------------
+  // Save status.json
+  // ------------------------------
+  await fs.writeJson(STATUS_FILE, {
+    status: finalStatus,
+    responseTime,
+    realDown,
+    checkedAt: new Date().toISOString(),
+  });
 
-  if (fs.existsSync(outputPath)) {
+  // ------------------------------
+  // Telegram Alert ONLY if real DOWN
+  // ------------------------------
+  if (realDown) {
+    const msg = `
+🚨 Cinepolis Website is DOWN!
+🌐 ${URL}
+⏱ Response Time: ${responseTime}ms
+🕒 Checked: ${new Date().toISOString()}
+    `;
+
     try {
-      history = JSON.parse(fs.readFileSync(outputPath, "utf8"));
-    } catch {}
+      await axios.get(
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(
+          msg
+        )}`
+      );
+    } catch (err) {}
   }
-
-  history.push(result);
-
-  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-  history = history.filter(
-    (e) => new Date(e.checked_at).getTime() >= cutoff
-  );
-
-  fs.writeFileSync(outputPath, JSON.stringify(history, null, 2));
 })();
