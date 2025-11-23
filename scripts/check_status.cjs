@@ -1,6 +1,9 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const fs = require("fs-extra");
 const path = require("path");
+
+puppeteer.use(StealthPlugin());
 
 const URL = "https://cinepolis.com/in";
 const ROOT_STATUS_FILE = path.join("status.json");
@@ -10,7 +13,7 @@ const MAX_LOG = 9440;
 (async () => {
   await fs.ensureDir(LOG_FOLDER);
 
-  let status = null;  // NO DEFAULT
+  let status = null;
   let responseTime = 0;
   let checkedAt = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
@@ -18,70 +21,53 @@ const MAX_LOG = 9440;
     const start = Date.now();
 
     const browser = await puppeteer.launch({
-      headless: "new",
+      headless: true,
       args: [
         "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled"
+        "--disable-setuid-sandbox"
       ]
     });
 
     const page = await browser.newPage();
 
+    // Real desktop fingerprint
     await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.225 Safari/537.36"
     );
 
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => false });
-    });
+    await page.setViewport({ width: 1366, height: 768 });
 
     const res = await page.goto(URL, {
-      timeout: 60000,
-      waitUntil: "domcontentloaded"
+      timeout: 90000,
+      waitUntil: "networkidle2"
     });
 
     responseTime = Date.now() - start;
 
     const html = await page.content();
 
-    // 1️⃣ Cloudflare Block Check
-    if (
-      html.includes("cf-browser-verification") ||
-      html.includes("Attention Required") ||
-      html.includes("cloudflare")
-    ) {
+    // ⛔ REAL CLOUDFLARE BLOCK CHECK
+    if (html.includes("cf-challenge") || html.includes("Checking your browser") ||
+        html.includes("verify you are human")) {
       status = "CLOUDFLARE_BLOCK";
     }
-
-    // 2️⃣ Website UP Check
-    else if (
-      res.status() === 200 &&
-      (
-        html.includes("Cinépolis") ||
-        html.includes("Cinepolis India") ||
-        html.includes("Now Showing") ||
-        html.includes("Movies")
-      )
-    ) {
+    // SITE CONTENT FOUND
+    else if (html.includes("Cinépolis") || html.includes("Now Showing") || html.includes("Movies")) {
       status = "UP";
     }
-
-    // 3️⃣ Website Open Hui But Content Nahi Mila
+    // HTTP 200 BUT CONTENT NOT LOADED
     else if (res.status() === 200) {
       status = "PARTIAL_UP";
     }
 
     await browser.close();
   } catch (err) {
-    // 4️⃣ Browser Error → DOWN
     status = "DOWN";
   }
 
-  // 5️⃣ Agar status abhi bhi null hai → UNKNOWN
   if (!status) status = "UNKNOWN";
 
-  // Load previous logs
+  // Load old log
   let log = [];
   if (await fs.pathExists(ROOT_STATUS_FILE)) {
     try { log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || []; } catch {}
