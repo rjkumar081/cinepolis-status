@@ -1,24 +1,25 @@
-name: Cinepolis Real Browser Monitor
+name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/3 * * * *"
   workflow_dispatch:
 
 jobs:
   monitor:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: 20
 
-      # Install Chromium dependencies — REQUIRED for Puppeteer on GitHub Actions
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -33,30 +34,122 @@ jobs:
             libxdamage1 \
             libxrandr2 \
             libgbm1 \
-            libasound2 \
             libpangocairo-1.0-0 \
-            libgtk-3-0
+            libgtk-3-0 \
+            libasound2t64
 
       - name: Install Node Dependencies
+        run: npm install puppeteer fs-extra path
+
+      - name: Run Monitor Script
+        id: monitor
         run: |
-          npm install puppeteer-extra puppeteer-extra-plugin-stealth puppeteer fs-extra
+          node <<'EOF'
+          const puppeteer = require("puppeteer");
+          const fs = require("fs-extra");
+          const path = require("path");
 
-      - name: Run Real Browser Check
-        run: node scripts/check_status.cjs
+          const URL = "https://cinepolis.com/in";
+          const STATUS_FILE = path.join("status.json");
+          const LOG_FOLDER = path.join("public", "logs");
+          const MAX_LOG = 500;
 
-      - name: Send Telegram Alert
-        if: always()
+          (async () => {
+            await fs.ensureDir(LOG_FOLDER);
+
+            let previousStatus = "NONE";
+            if (await fs.pathExists(STATUS_FILE)) {
+              const old = await fs.readJson(STATUS_FILE);
+              previousStatus = old.status;
+            }
+
+            let result = {
+              status: "DOWN",
+              responseTime: 0,
+              checkedAt: new Date().toISOString()
+            };
+
+            const start = Date.now();
+            try {
+              const browser = await puppeteer.launch({
+                headless: true,
+                args: ["--no-sandbox"]
+              });
+              const page = await browser.newPage();
+
+              const response = await page.goto(URL, {
+                timeout: 60000,
+                waitUntil: "domcontentloaded"
+              });
+
+              result.responseTime = Date.now() - start;
+
+              if (response.status() === 200) {
+                result.status = "UP";
+              }
+              await browser.close();
+            } catch (err) {
+              result.status = "DOWN";
+            }
+
+            // Save status.json
+            await fs.writeJson(STATUS_FILE, result, { spaces: 2 });
+
+            // Save logs
+            const logFile = path.join(LOG_FOLDER, `${Date.now()}.json`);
+            await fs.writeJson(logFile, result, { spaces: 2 });
+
+            // Limit log count
+            const files = await fs.readdir(LOG_FOLDER);
+            if (files.length > MAX_LOG) {
+              const remove = files.slice(0, files.length - MAX_LOG);
+              for (const file of remove) {
+                await fs.remove(path.join(LOG_FOLDER, file));
+              }
+            }
+
+            // Output for Telegram step
+            console.log(`STATUS=${result.status}`);
+            console.log(`PREVIOUS=${previousStatus}`);
+
+            console.log(`::set-output name=status::${result.status}`);
+            console.log(`::set-output name=prev::${previousStatus}`);
+            console.log(`::set-output name=response_time::${result.responseTime}`);
+            console.log(`::set-output name=checked_at::${result.checkedAt}`);
+          })();
+          EOF
+
+      - name: Commit Changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add status.json public/logs/
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Uptime Update"
+            git push
+          fi
+
+      - name: Send Telegram Alert (Only on Status Change)
+        if: steps.monitor.outputs.status != steps.monitor.outputs.prev
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
 
-          if [ "${{ env.STATUS }}" = "UP" ]; then
-            MSG="✅ *Cinepolis Website is UP!*%0A🌐 https://cinepolis.com/in%0A⚡ Response Time: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked At: ${{ env.CHECKED_AT }}"
+          STATUS="${{ steps.monitor.outputs.status }}"
+          PREV="${{ steps.monitor.outputs.prev }}"
+          TIME="${{ steps.monitor.outputs.response_time }}"
+          CHECKED="${{ steps.monitor.outputs.checked_at }}"
+
+          if [ "$STATUS" = "UP" ]; then
+            MSG="✅ *Cinepolis Website is UP!*%0A🌐 https://cinepolis.com/in%0A⏱ Response Time: ${TIME}ms%0A🕒 Checked: ${CHECKED}"
           else
-            MSG="🚨 *Cinepolis Website is DOWN!*%0A🌐 https://cinepolis.com/in%0A⚡ Response Time: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked At: ${{ env.CHECKED_AT }}%0A❗ Status: ${{ env.STATUS }}"
+            MSG="🚨 *Cinepolis Website is DOWN!*%0A🌐 https://cinepolis.com/in%0A⏱ Response Time: ${TIME}ms%0A🕒 Checked: ${CHECKED}"
           fi
 
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
-            -d parse_mode="Markdown"
+            -d chat_id="$CHAT" \
+            -d parse_mode="Markdown" \
+            --data-urlencode "text=$MSG"
