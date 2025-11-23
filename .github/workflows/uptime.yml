@@ -1,0 +1,51 @@
+name: Cinepolis Real Browser Uptime
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Call Render API (Secure)
+        run: |
+          RESPONSE=$(curl -s -X POST "https://YOUR-RENDER-URL/check" \
+            -H "x-api-key: ${{ secrets.API_SECRET_KEY }}")
+
+          echo "$RESPONSE" > status.json
+          echo "RESPONSE=$RESPONSE" >> $GITHUB_ENV
+
+      - name: Send Telegram Alert
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+
+          STATUS=$(echo '${{ env.RESPONSE }}' | jq -r '.status')
+          TIME=$(echo '${{ env.RESPONSE }}' | jq -r '.responseTime')
+          CHECK=$(echo '${{ env.RESPONSE }}' | jq -r '.checkedAt')
+
+          if [ "$STATUS" = "UP" ]; then
+            MSG="✅ Cinepolis UP%0A🌍 https://cinepolis.com/in%0A⏱ Response: ${TIME}ms%0A🕒 Checked: ${CHECK}"
+          else
+            MSG="🚨 Cinepolis DOWN%0A🌍 https://cinepolis.com/in%0A⏱ Response: ${TIME}ms%0A🕒 Checked: ${CHECK}"
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT" \
+            --data-urlencode "text=$MSG"
+
+      - name: Commit Updated Status
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add status.json
+          git diff --staged --quiet || git commit -m "Status Updated"
+          git push
