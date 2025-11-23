@@ -1,97 +1,73 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs-extra");
 const axios = require("axios");
+const path = require("path");
 
 const URL = "https://cinepolis.com/in";
-const STATUS_FILE = "status.json";
+const STATUS_FILE = path.join("public", "status.json");
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+async function sendTelegram(msg) {
+  if (!BOT_TOKEN || !CHAT_ID) {
+    console.log("Telegram credentials missing");
+    return;
+  }
+
+  try {
+    await axios.get(
+      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+      {
+        params: {
+          chat_id: CHAT_ID,
+          text: msg,
+        },
+      }
+    );
+    console.log("Telegram alert sent");
+  } catch (err) {
+    console.log("Telegram error:", err.message);
+  }
+}
 
 (async () => {
   let browser;
-  let finalStatus = "DOWN";
-  let responseTime = 0;
+  let status = "UP";
   let realDown = false;
+  let responseTime = 0;
 
   try {
+    const start = Date.now();
     browser = await puppeteer.launch({
       headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
     const page = await browser.newPage();
-    const start = Date.now();
-
-    const res = await page.goto(URL, {
-      timeout: 40000,
-      waitUntil: "domcontentloaded",
-    });
+    const response = await page.goto(URL, { timeout: 60000, waitUntil: "domcontentloaded" });
 
     responseTime = Date.now() - start;
-    const html = await page.content();
 
-    // Detect Cloudflare
-    const isCloudflare =
-      html.includes("Checking your browser before accessing") ||
-      html.includes("cf-browser-verification") ||
-      html.includes("cloudflare") ||
-      html.includes("Attention Required!");
-
-    const isHomepage =
-      html.includes("Cinépolis") ||
-      html.includes("movies") ||
-      html.includes("theatre") ||
-      html.includes("cinepolis");
-
-    if (isHomepage) {
-      finalStatus = "UP";
-    } else if (isCloudflare) {
-      finalStatus = "UP";
-    } else {
+    if (!response || !response.ok()) {
+      status = "DOWN";
       realDown = true;
-      finalStatus = "DOWN";
+      await sendTelegram(`❌ Website DOWN\n⏱ Response: ${responseTime}ms`);
+    } else {
+      await sendTelegram(`✅ Website UP\n⏱ Response: ${responseTime}ms`);
     }
-
-    if (!isHomepage) {
-      await page.screenshot({ path: "latest_screenshot.png" });
-    }
-
-    await browser.close();
-  } catch (err) {
+  } catch (e) {
+    status = "DOWN";
     realDown = true;
-    finalStatus = "DOWN";
+    await sendTelegram(`❌ Website DOWN\n⚠ Error: ${e.message}`);
   }
 
-  await fs.writeJson(STATUS_FILE, {
-    status: finalStatus,
-    responseTime,
-    realDown,
-    checkedAt: new Date().toISOString(),
-  });
+  if (browser) await browser.close();
 
-  if (realDown) {
-    const msg = `
-🚨 *Cinepolis Website is DOWN!*  
-🌍 ${URL}  
-⏱ Response Time: ${responseTime}ms  
-🕒 Checked: ${new Date().toISOString()}
-`;
+  await fs.ensureDir(path.dirname(STATUS_FILE));
 
-    try {
-      await axios.get(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-          params: {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: msg,
-            parse_mode: "Markdown"
-          }
-        }
-      );
-    } catch (e) {}
-  }
+  const data = { status, responseTime, realDown, checkedAt: new Date().toISOString() };
+  await fs.writeJson(STATUS_FILE, data, { spaces: 2 });
+
+  console.log("Status saved:", data);
 })();
