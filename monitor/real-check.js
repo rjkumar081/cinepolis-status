@@ -4,7 +4,6 @@ const axios = require("axios");
 
 const URL = "https://cinepolis.com/in";
 const STATUS_FILE = "status.json";
-const LOG_FILE = "public/logs/log.json";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -18,29 +17,32 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
   try {
     browser = await puppeteer.launch({
       headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
     });
 
     const page = await browser.newPage();
-
     const start = Date.now();
-    const res = await page.goto(URL, { timeout: 30000, waitUntil: "domcontentloaded" });
-    responseTime = Date.now() - start;
 
+    const res = await page.goto(URL, {
+      timeout: 40000,
+      waitUntil: "domcontentloaded",
+    });
+
+    responseTime = Date.now() - start;
     const html = await page.content();
 
-    // ------------------------------
-    // Detect Cloudflare Firewall Page
-    // ------------------------------
-    const isCloudflareBlocked =
+    // Cloudflare Detection
+    const isCloudflare =
       html.includes("Checking your browser before accessing") ||
       html.includes("cf-browser-verification") ||
       html.includes("cloudflare") ||
       html.includes("Attention Required!");
 
-    // ------------------------------
-    // Detect actual Cinepolis homepage
-    // ------------------------------
+    // Homepage detection
     const isHomepage =
       html.includes("Cinépolis") ||
       html.includes("movies") ||
@@ -49,27 +51,25 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
     if (isHomepage) {
       finalStatus = "UP";
-    } else if (isCloudflareBlocked) {
-      finalStatus = "UP"; // Cloudflare blocked us but website itself is UP
+    } else if (isCloudflare) {
+      finalStatus = "UP"; // Blocked but site is UP
     } else {
       realDown = true;
       finalStatus = "DOWN";
     }
 
-    // Save screenshot for debugging when page not detected
+    // Save screenshot when fail
     if (!isHomepage) {
-      await page.screenshot({ path: "public/logs/latest_screenshot.png" });
+      await page.screenshot({ path: "latest_screenshot.png" });
     }
 
     await browser.close();
-  } catch (error) {
+  } catch (err) {
     realDown = true;
     finalStatus = "DOWN";
   }
 
-  // ------------------------------
-  // Save status.json
-  // ------------------------------
+  // Save status file
   await fs.writeJson(STATUS_FILE, {
     status: finalStatus,
     responseTime,
@@ -77,23 +77,25 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
     checkedAt: new Date().toISOString(),
   });
 
-  // ------------------------------
-  // Telegram Alert ONLY if real DOWN
-  // ------------------------------
+  // Telegram alert for REAL DOWN only
   if (realDown) {
     const msg = `
-🚨 Cinepolis Website is DOWN!
-🌐 ${URL}
-⏱ Response Time: ${responseTime}ms
+🚨 *Cinepolis Website is DOWN!*  
+🌍 ${URL}  
+⏱ Response Time: ${responseTime}ms  
 🕒 Checked: ${new Date().toISOString()}
-    `;
+`;
 
     try {
       await axios.get(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(
-          msg
-        )}`
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+          params: {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: msg,
+            parse_mode: "Markdown"
+          }
+        }
       );
-    } catch (err) {}
+    } catch (e) {}
   }
 })();
