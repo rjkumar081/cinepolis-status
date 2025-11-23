@@ -1,68 +1,72 @@
-name: Cinepolis Real Browser Monitor
+name: Cinepolis Status Alert
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # runs every 5 minutes
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
-  monitor:
+  check-status:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+    - name: Download last status
+      id: last
+      uses: actions/download-artifact@v4
+      with:
+        name: last_status
+        path: ./prev
+      continue-on-error: true
 
-      - name: Call Render Real-Browser API
-        id: check
-        run: |
-          RESPONSE=$(curl -s -X POST "https://cinepolis-status.onrender.com/check" \
-            -H "x-api-key: ${{ secrets.API_SECRET_KEY }}" \
-            -H "Content-Type: application/json")
+    - name: Read last status
+      run: |
+        if [ -f "./prev/status.txt" ]; then
+          LAST_STATUS=$(cat ./prev/status.txt)
+        else
+          LAST_STATUS="unknown"
+        fi
+        echo "LAST_STATUS=$LAST_STATUS" >> $GITHUB_ENV
+
+    - name: Call Cinepolis Status API
+      run: |
+        RESPONSE=$(curl -s -X POST "https://cinepolis-status.onrender.com/check" \
+          -H "x-api-key: ${{ secrets.CINE_API_KEY }}" \
+          -H "Content-Type: application/json")
+
+        # Encode HTML-safe
+        ENCODED=$(echo "$RESPONSE" | base64)
+        echo "API_RESPONSE=$ENCODED" >> $GITHUB_ENV
+
+    - name: Decode and Extract Current Status
+      run: |
+        DECODED=$(echo "$API_RESPONSE" | base64 --decode)
+        echo "API Response: $DECODED"
+
+        CURRENT_STATUS=$(echo "$DECODED" | jq -r '.status')
+        echo "CURRENT_STATUS=$CURRENT_STATUS" >> $GITHUB_ENV
+
+    - name: Compare Status & Send Alert
+      run: |
+        if [ "$LAST_STATUS" != "$CURRENT_STATUS" ]; then
           
-          echo "API_RESPONSE=$RESPONSE" >> $GITHUB_ENV
+          if [ "$CURRENT_STATUS" = "down" ]; then
+            MESSAGE="🚨 ALERT: Cinepolis website is DOWN ❌"
+          else
+            MESSAGE="🟢 GOOD NEWS: Cinepolis website is UP ✔️"
+          fi
 
-      - name: Parse JSON
-        run: |
-          echo "STATUS=$(echo '${{ env.API_RESPONSE }}' | jq -r '.status')" >> $GITHUB_ENV
-          echo "RESPONSE_TIME=$(echo '${{ env.API_RESPONSE }}' | jq -r '.responseTime')" >> $GITHUB_ENV
-          echo "REAL_DOWN=$(echo '${{ env.API_RESPONSE }}' | jq -r '.realDown')" >> $GITHUB_ENV
-          echo "CHECKED_AT=$(echo '${{ env.API_RESPONSE }}' | jq -r '.checkedAt')" >> $GITHUB_ENV
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": \"$MESSAGE\"}"
 
-      - name: Save status.json
-        run: |
-          echo "${{ env.API_RESPONSE }}" > status.json
+        else
+          echo "No change, no alert sent."
+        fi
 
-      - name: Commit changes
-        run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          git add status.json
-          git diff --staged --quiet || git commit -m "Status Updated"
-          git push
-
-      - name: Send Telegram Alert
-        if: env.REAL_DOWN == 'true'
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Cinepolis Appears DOWN!* 🚨%0A🌐 https://cinepolis.com/in%0A⏱ Response: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked: ${{ env.CHECKED_AT }}"
-          
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT" \
-            --data-urlencode text="$MSG" \
-            -d parse_mode="Markdown"
-
-      - name: Send UP Recovery Alert
-        if: env.REAL_DOWN == 'false'
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="✅ *Cinepolis Website is UP!*%0A🌐 https://cinepolis.com/in%0A⏱ Response: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked: ${{ env.CHECKED_AT }}"
-          
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT" \
-            --data-urlencode text="$MSG" \
-            -d parse_mode="Markdown"
+    - name: Save current status for next run
+      uses: actions/upload-artifact@v4
+      with:
+        name: last_status
+        path: status.txt
+      run: |
+        echo "$CURRENT_STATUS" > status.txt
