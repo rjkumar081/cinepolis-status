@@ -1,51 +1,119 @@
-name: Cinepolis Real Browser Uptime
+const puppeteer = require("puppeteer");
+const fs = require("fs-extra");
+const crypto = require("crypto");
+const axios = require("axios");
 
-on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+const URL = "https://cinepolis.com/in";
+const STATUS_FILE = "status.json";
 
-jobs:
-  monitor:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+// ENV variables from GitHub Secrets
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+const API_SECRET_KEY = process.env.API_SECRET_KEY;
+const RENDER_WEBHOOK_URL = process.env.RENDER_WEBHOOK_URL;
 
-      - name: Call Render API (Secure)
-        run: |
-          RESPONSE=$(curl -s -X POST "https://YOUR-RENDER-URL/check" \
-            -H "x-api-key: ${{ secrets.API_SECRET_KEY }}")
+async function sendTelegram(msg) {
+  try {
+    await axios.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      params: {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: msg
+      }
+    });
+    console.log("Telegram alert sent");
+  } catch (err) {
+    console.log("Telegram Error:", err.message);
+  }
+}
 
-          echo "$RESPONSE" > status.json
-          echo "RESPONSE=$RESPONSE" >> $GITHUB_ENV
+async function triggerRenderDeploy() {
+  try {
+    const timestamp = Date.now().toString();
 
-      - name: Send Telegram Alert
-        run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+    // Create HMAC signature using your API_SECRET_KEY
+    const signature = crypto
+      .createHmac("sha256", API_SECRET_KEY)
+      .update(timestamp)
+      .digest("hex");
 
-          STATUS=$(echo '${{ env.RESPONSE }}' | jq -r '.status')
-          TIME=$(echo '${{ env.RESPONSE }}' | jq -r '.responseTime')
-          CHECK=$(echo '${{ env.RESPONSE }}' | jq -r '.checkedAt')
+    // Hit Render webhook with signature header
+    await axios.post(
+      RENDER_WEBHOOK_URL,
+      {},
+      {
+        headers: {
+          "X-Timestamp": timestamp,
+          "X-Signature": signature,
+        },
+      }
+    );
 
-          if [ "$STATUS" = "UP" ]; then
-            MSG="✅ Cinepolis UP%0A🌍 https://cinepolis.com/in%0A⏱ Response: ${TIME}ms%0A🕒 Checked: ${CHECK}"
-          else
-            MSG="🚨 Cinepolis DOWN%0A🌍 https://cinepolis.com/in%0A⏱ Response: ${TIME}ms%0A🕒 Checked: ${CHECK}"
-          fi
+    console.log("Render Deploy Triggered");
+  } catch (err) {
+    console.log("Render Error:", err.message);
+  }
+}
 
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT" \
-            --data-urlencode "text=$MSG"
+async function checkWebsite() {
+  let status = "UP";
+  let responseTime = 0;
+  let realDown = false;
 
-      - name: Commit Updated Status
-        run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          git add status.json
-          git diff --staged --quiet || git commit -m "Status Updated"
-          git push
+  const start = Date.now();
+
+  try {
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox"]
+    });
+
+    const page = await browser.newPage();
+
+    const response = await page.goto(URL, {
+      timeout: 25000,
+      waitUntil: "domcontentloaded",
+    });
+
+    responseTime = Date.now() - start;
+
+    if (!response || response.status() >= 400) {
+      status = "DOWN";
+      realDown = true;
+    }
+
+    await browser.close();
+  } catch (err) {
+    status = "DOWN";
+    realDown = true;
+  }
+
+  return { status, responseTime, realDown };
+}
+
+async function saveStatus(finalStatus) {
+  await fs.writeJson(STATUS_FILE, finalStatus, { spaces: 2 });
+  console.log("Status saved:", finalStatus);
+}
+
+async function main() {
+  const check = await checkWebsite();
+
+  const finalStatus = {
+    status: check.status,
+    responseTime: check.responseTime,
+    realDown: check.realDown,
+    checkedAt: new Date().toISOString(),
+  };
+
+  await saveStatus(finalStatus);
+
+  if (check.realDown) {
+    await sendTelegram(`❌ Cinepolis DOWN\nResponse: ${check.responseTime}ms`);
+    await triggerRenderDeploy();
+  } else {
+    await sendTelegram(`✅ Cinepolis UP\nResponse: ${check.responseTime}ms`);
+  }
+}
+
+main();
