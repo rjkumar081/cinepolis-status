@@ -1,8 +1,8 @@
-name: Cinepolis Uptime Monitor
+name: Cinepolis Real Browser Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # runs every 5 minutes
   workflow_dispatch:
 
 jobs:
@@ -15,27 +15,54 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-
-      - name: Install Puppeteer
+      - name: Call Render Real-Browser API
+        id: check
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libnss3 libxss1 libasound2t64
-          npm install puppeteer axios fs-extra
+          RESPONSE=$(curl -s -X POST "https://cinepolis-status.onrender.com/check" \
+            -H "x-api-key: ${{ secrets.API_SECRET_KEY }}" \
+            -H "Content-Type: application/json")
+          
+          echo "API_RESPONSE=$RESPONSE" >> $GITHUB_ENV
 
-      - name: Run monitor script
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: node monitor.js
+      - name: Parse JSON
+        run: |
+          echo "STATUS=$(echo '${{ env.API_RESPONSE }}' | jq -r '.status')" >> $GITHUB_ENV
+          echo "RESPONSE_TIME=$(echo '${{ env.API_RESPONSE }}' | jq -r '.responseTime')" >> $GITHUB_ENV
+          echo "REAL_DOWN=$(echo '${{ env.API_RESPONSE }}' | jq -r '.realDown')" >> $GITHUB_ENV
+          echo "CHECKED_AT=$(echo '${{ env.API_RESPONSE }}' | jq -r '.checkedAt')" >> $GITHUB_ENV
 
-      - name: Commit Changes
+      - name: Save status.json
+        run: |
+          echo "${{ env.API_RESPONSE }}" > status.json
+
+      - name: Commit changes
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
-          git add -A
+          git add status.json
           git diff --staged --quiet || git commit -m "Status Updated"
           git push
+
+      - name: Send Telegram Alert
+        if: env.REAL_DOWN == 'true'
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG="🚨 *Cinepolis Appears DOWN!* 🚨%0A🌐 https://cinepolis.com/in%0A⏱ Response: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked: ${{ env.CHECKED_AT }}"
+          
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT" \
+            --data-urlencode text="$MSG" \
+            -d parse_mode="Markdown"
+
+      - name: Send UP Recovery Alert
+        if: env.REAL_DOWN == 'false'
+        run: |
+          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
+          MSG="✅ *Cinepolis Website is UP!*%0A🌐 https://cinepolis.com/in%0A⏱ Response: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked: ${{ env.CHECKED_AT }}"
+          
+          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d chat_id="$CHAT" \
+            --data-urlencode text="$MSG" \
+            -d parse_mode="Markdown"
