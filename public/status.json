@@ -1,32 +1,6 @@
-[
-  {
-    "checked_at": "2025-11-22T08:28:15.211Z",
-    "status": "DOWN",
-    "status_code": 403,
-    "response_time": 1512
-  },
-  {
-    "checked_at": "2025-11-22T08:29:53.794Z",
-    "status": "DOWN",
-    "status_code": 403,
-    "response_time": 1780
-  },
-  {
-    "checked_at": "2025-11-22T08:32:31.047Z",
-    "status": "DOWN",
-    "status_code": 403,
-    "response_time": 1260
-  },
-  {
-    "checked_at": "2025-11-22T08:36:29.192Z",
-    "status": "DOWN",
-    "status_code": 403,
-    "response_time": 1287
-  },
-  {
-    "checked_at": "2025-11-22T08:46:33.158Z",
-    "status": "DOWN",
-    "status_code": 403,
-    "response_time": 2145
-  }
-]
+{
+  "status": "DOWN",
+  "responseTime": 0,
+  "realDown": true,
+  "checkedAt": "2025-11-23T05:30:13.270Z"
+}
