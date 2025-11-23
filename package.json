@@ -1,13 +1,12 @@
 {
-  "name": "cinepolis-uptime-monitor",
+  "name": "cinepolis-status",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node monitor.js"
-  },
+  "type": "commonjs",
   "dependencies": {
-    "playwright": "^1.49.1",
-    "axios": "^1.6.7"
+    "puppeteer": "^22.6.3",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.1",
+    "fs-extra": "^11.2.0"
   }
 }
