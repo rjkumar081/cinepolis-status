@@ -13,23 +13,49 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Install Node & Puppeteer
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Install Chromium dependencies — REQUIRED for Puppeteer on GitHub Actions
+      - name: Install System Dependencies
         run: |
-          npm init -y
-          npm install puppeteer fs-extra
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libasound2 \
+            libpangocairo-1.0-0 \
+            libgtk-3-0
+
+      - name: Install Node Dependencies
+        run: |
+          npm install puppeteer-extra puppeteer-extra-plugin-stealth puppeteer fs-extra
 
       - name: Run Real Browser Check
         run: node scripts/check_status.cjs
 
       - name: Send Telegram Alert
+        if: always()
         run: |
           TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+
           if [ "${{ env.STATUS }}" = "UP" ]; then
-            MSG="✅ Cinepolis Website is UP! ✅%0AURL: https://cinepolis.com/in%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AChecked At: ${{ env.CHECKED_AT }}"
+            MSG="✅ *Cinepolis Website is UP!*%0A🌐 https://cinepolis.com/in%0A⚡ Response Time: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked At: ${{ env.CHECKED_AT }}"
           else
-            MSG="🚨 Cinepolis Website is DOWN! 🚨%0AURL: https://cinepolis.com/in%0AResponse Time: ${{ env.RESPONSE_TIME }}ms%0AChecked At: ${{ env.CHECKED_AT }}"
+            MSG="🚨 *Cinepolis Website is DOWN!*%0A🌐 https://cinepolis.com/in%0A⚡ Response Time: ${{ env.RESPONSE_TIME }}ms%0A🕒 Checked At: ${{ env.CHECKED_AT }}%0A❗ Status: ${{ env.STATUS }}"
           fi
+
           curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
             -d chat_id="$CHAT_ID" \
             --data-urlencode "text=$MSG" \
