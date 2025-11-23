@@ -1,5 +1,1 @@
-{
-  "status": "DOWN",
-  "responseTime": 635,
-  "checkedAt": "2025-11-23T05:12:38.296Z"
-}
+{"status":"DOWN","responseTime":120,"realDown":true,"checkedAt":"2025-11-23T05:25:21.231Z"}

@@ -4,9 +4,10 @@
   "private": true,
   "type": "commonjs",
   "dependencies": {
-    "puppeteer": "^22.6.3",
+    "axios": "^1.13.2",
+    "fs-extra": "^11.3.2",
+    "puppeteer": "^22.15.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.1",
-    "fs-extra": "^11.2.0"
+    "puppeteer-extra-plugin-stealth": "^2.11.1"
   }
 }
