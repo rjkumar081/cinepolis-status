@@ -1,10 +1,17 @@
 {
+  "name": "cinepolis-status",
+  "version": "1.0.0",
+  "description": "Uptime monitoring for cinepolis.com/in using GitHub Actions + Telegram Alerts",
   "type": "module",
+  "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^21.0.0"
-  }
+    "node-fetch": "^3.3.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
 }
