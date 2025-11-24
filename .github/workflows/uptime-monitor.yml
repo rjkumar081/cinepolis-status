@@ -2,7 +2,7 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -23,10 +24,10 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install jq fs-extra
+          npm install fs-extra
 
-      - name: Check Website Status and Update Status.json (CURL MODE)
-        id: check_site
+      - name: Check Website Status and Update Status.json
+        id: check
         run: |
           node <<'EOF'
           const { execSync } = require("child_process");
@@ -44,19 +45,17 @@ jobs:
 
           try {
             const start = Date.now();
-
-            // Curl with Chrome fingerprint (Cloudflare bypass)
             const cmd =
               `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
-              `-H "Accept-Language: en-US,en;q=0.9" ` +
               `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
 
             const output = execSync(cmd).toString();
             responseTime = Date.now() - start;
 
             const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
+
             if (match) {
-              statusCode = parseInt(match[1]);
+              statusCode = Number(match[1]);
               if ([200, 301, 302].includes(statusCode)) {
                 status = "UP";
               }
@@ -66,42 +65,50 @@ jobs:
             console.log("curl error:", err.message);
           }
 
-          // Save log
-          (async () => {
-            await fs.ensureDir(LOG_FOLDER);
+          // ---- READ STATUS FILE (ALWAYS ARRAY) ----
+          await fs.ensureDir("public");
+          await fs.ensureDir(LOG_FOLDER);
 
-            let log = [];
-            if (await fs.pathExists(ROOT_STATUS_FILE)) {
-              try {
-                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
-              } catch {
-                log = [];
-              }
+          let log = [];
+          if (await fs.pathExists(ROOT_STATUS_FILE)) {
+            try {
+              const data = await fs.readFile(ROOT_STATUS_FILE, "utf8");
+              log = JSON.parse(data);
+              if (!Array.isArray(log)) log = [];
+            } catch {
+              log = [];
             }
+          }
 
-            const entry = {
-              checked_at: new Date().toISOString(),
-              status,
-              status_code: statusCode,
-              response_time: responseTime
-            };
+          // ---- ADD NEW ENTRY ----
+          const entry = {
+            checked_at: new Date().toISOString(),
+            status,
+            status_code: statusCode,
+            response_time: responseTime
+          };
 
-            log.push(entry);
-            if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+          log.push(entry);
+          if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-            const upPct = ((log.filter(e => e.status === "UP").length / log.length) * 100).toFixed(2);
+          const upPct = (
+            (log.filter(e => e.status === "UP").length / log.length) * 100
+          ).toFixed(2);
 
-            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+          await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+          await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            // Export vars for telegram
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
-          })();
+          // ---- EXPORT VARS FOR NEXT STEPS ----
+          fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
+
           EOF
 
+      # -------------------------------------------
+      # 🚨 ALERT WHEN DOWN
+      # -------------------------------------------
       - name: Telegram Alert - DOWN
         if: ${{ env.STATUS != 'UP' }}
         run: |
@@ -113,15 +120,18 @@ jobs:
             --data-urlencode "text=$MSG" \
             -d parse_mode="Markdown"
 
+      # -------------------------------------------
+      # ✅ ALERT WHEN SITE COMES BACK UP
+      # -------------------------------------------
       - name: Telegram Alert - UP (if previously DOWN)
         if: ${{ env.STATUS == 'UP' }}
         run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
+          PREV=$(tail -n 2 public/status.json | grep -o '"status":"[^"]*"' | head -1 | cut -d':' -f2 | tr -d '"')
           
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
+          if [ "$PREV" != "UP" ]; then
+            TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+            CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
+            MSG="✅ *Website is UP!*%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
             curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
               -d chat_id="$CHAT_ID" \
               --data-urlencode "text=$MSG" \
