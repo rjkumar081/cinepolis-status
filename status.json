@@ -1,1 +1,79 @@
-{"status":"DOWN","responseTime":120,"realDown":true,"checkedAt":"2025-11-23T05:25:21.231Z"}
+- name: Check Website Status and Update Status.json
+  id: check
+  run: |
+    node <<'EOF'
+    import { execSync } from "node:child_process";
+    import fs from "fs-extra";
+    import path from "node:path";
+
+    const ROOT_STATUS_FILE = path.join("public", "status.json");
+    const LOG_FOLDER = path.join("public", "logs");
+    const URL = "https://www.cinepolis.com/in";
+    const MAX_LOG = 1440;
+
+    let status = "DOWN";
+    let statusCode = 0;
+    let responseTime = 0;
+
+    try {
+      const start = Date.now();
+
+      const cmd =
+        `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122 Safari/537.36" ` +
+        `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
+
+      const output = execSync(cmd).toString();
+      responseTime = Date.now() - start;
+
+      const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
+
+      if (match) {
+        statusCode = Number(match[1]);
+        if ([200, 301, 302].includes(statusCode)) status = "UP";
+      }
+
+    } catch (err) {
+      console.log("Curl error:", err.message);
+    }
+
+    // Ensure dirs
+    await fs.ensureDir("public");
+    await fs.ensureDir(LOG_FOLDER);
+
+    // Read status.json (Always Array)
+    let log = [];
+    if (await fs.pathExists(ROOT_STATUS_FILE)) {
+      try {
+        const data = await fs.readFile(ROOT_STATUS_FILE, "utf8");
+        log = JSON.parse(data);
+        if (!Array.isArray(log)) log = [];
+      } catch {
+        log = [];
+      }
+    }
+
+    // Add new entry
+    const entry = {
+      checked_at: new Date().toISOString(),
+      status,
+      status_code: statusCode,
+      response_time: responseTime
+    };
+
+    log.push(entry);
+    if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
+
+    const upPct = (
+      (log.filter(e => e.status === "UP").length / log.length) * 100
+    ).toFixed(2);
+
+    await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
+    await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
+
+    // Export vars
+    await fs.appendFile(process.env.GITHUB_ENV, `STATUS=${status}\n`);
+    await fs.appendFile(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
+    await fs.appendFile(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
+    await fs.appendFile(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
+
+    EOF
