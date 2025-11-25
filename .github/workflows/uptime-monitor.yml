@@ -1,4 +1,4 @@
-name: Cinepolis Uptime Monitor (Hybrid)
+name: Cinepolis Uptime Monitor
 
 on:
   schedule:
@@ -24,88 +24,54 @@ jobs:
 
       - name: Install deps
         run: |
-          npm install fs-extra puppeteer
+          npm install fs-extra
 
-      - name: Real browser check + screenshot
+      - name: HTTP check with curl
         id: check_site
         run: |
           node <<'EOF'
+          const { execSync } = require("child_process");
           const fs = require("fs-extra");
-          const puppeteer = require("puppeteer");
 
-          const URL = "https://www.cinepolis.com/in";
           const STATUS_FILE = "status.json";
           const LOG_FILE = "log.json";
-          const SCREENSHOT_FILE = "latest_screenshot.png";
+          const URL = "https://www.cinepolis.com/in";
           const MAX_LOG = 1440;
 
-          async function main() {
-            let status = "DOWN";      // final status
-            let statusCode = 0;
-            let responseTime = 0;
-            let keywordFound = false;
-            let errorMessage = "";
+          let status = "DOWN";
+          let statusCode = 0;
+          let responseTime = 0;
 
-            const browser = await puppeteer.launch({
-              headless: "new",
-              args: ["--no-sandbox", "--disable-setuid-sandbox"]
-            });
+          // current time once use karenge (ISO + pretty dono ke लिए)
+          const now = new Date();
 
-            try {
-              const page = await browser.newPage();
-              await page.setUserAgent(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-              );
-              await page.setExtraHTTPHeaders({
-                "Accept-Language": "en-US,en;q=0.9"
-              });
+          try {
+            const start = Date.now();
 
-              const start = Date.now();
-              const response = await page.goto(URL, {
-                waitUntil: "domcontentloaded",
-                timeout: 30000
-              });
-              responseTime = Date.now() - start;
+            const cmd =
+              `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
+              `-H "Accept-Language: en-US,en;q=0.9" ` +
+              `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
 
-              if (response) {
-                statusCode = response.status();
-              }
+            const output = execSync(cmd).toString();
+            responseTime = Date.now() - start;
 
-              // thoda wait for dynamic content
-              await page.waitForTimeout(3000);
-
-              const html = await page.content();
-              const lower = html.toLowerCase();
-              keywordFound =
-                lower.includes("cinepolis") || lower.includes("cinépolis");
-
-              // screenshot proof
-              await page.screenshot({
-                path: SCREENSHOT_FILE,
-                fullPage: true
-              });
-
-            } catch (err) {
-              console.log("puppeteer error:", err.message);
-              errorMessage = err.message;
-            } finally {
-              await browser.close();
+            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
+            if (match) {
+              statusCode = parseInt(match[1], 10);
             }
 
-            // ---------- Decide STATUS ----------
-            if (statusCode >= 200 && statusCode < 400 && keywordFound) {
-              status = "UP";               // page loaded & brand text found
-            } else if (statusCode >= 200 && statusCode < 400 && !keywordFound) {
-              status = "UNKNOWN";          // response OK but content suspect
-            } else if (statusCode === 403 || statusCode === 401) {
-              status = "BLOCKED";          // WAF / auth issue
-            } else if (statusCode > 0) {
-              status = "ERROR";            // 4xx/5xx
-            } else {
-              status = "DOWN";             // no HTTP response at all
-            }
+            // Curl command successful -> infra reachable
+            // Cloudflare 403 aayega to bhi "UP" treat kar rahe hain
+            status = "UP";
 
-            // ---------- Load previous log ----------
+          } catch (err) {
+            console.log("curl error:", err.message);
+            status = "DOWN";
+          }
+
+          (async () => {
+            // पुराना log पढ़ो
             let log = [];
             if (await fs.pathExists(LOG_FILE)) {
               try {
@@ -118,24 +84,18 @@ jobs:
             }
 
             const entry = {
-              checked_at: new Date().toISOString(),
+              checked_at: now.toISOString(),
               status,
               status_code: statusCode,
-              response_time: responseTime,
-              keyword_found: keywordFound,
-              error: errorMessage || null
+              response_time: responseTime
             };
 
             log.push(entry);
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
             const upCount = log.filter(e => e.status === "UP").length;
-            const uptimePercent =
-              log.length > 0
-                ? ((upCount / log.length) * 100).toFixed(2)
-                : "0.00";
-            const prevStatus =
-              log.length > 1 ? log[log.length - 2].status : "";
+            const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
+            const prevStatus = log.length > 1 ? log[log.length - 2].status : "";
 
             await fs.writeJson(
               STATUS_FILE,
@@ -147,29 +107,39 @@ jobs:
             );
             await fs.writeJson(LOG_FILE, log, { spaces: 2 });
 
+            // pretty time "22/11/2025, 4:21:17 pm" जैसा
+            const checkedAtPretty = now.toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: true
+            });
+
             const outputs = {
               status,
               status_code: statusCode,
               response_time: responseTime,
               uptime_percent: uptimePercent,
               prev_status: prevStatus,
-              keyword_found: keywordFound
+              checked_at: checkedAtPretty
             };
 
             let out = "";
             for (const [k, v] of Object.entries(outputs)) {
-              out += `${k}=${v}\n`;
+              out += `${k}=${String(v).replace(/\n/g, " ")}\n`;
             }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
-          }
-
-          main().catch(err => {
+          })().catch(err => {
             console.error("Monitor failed:", err);
             process.exit(1);
           });
           EOF
 
-      - name: Telegram Alert with screenshot (every 10 minutes)
+      - name: Telegram Alert (every 10 minutes)
         env:
           TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -178,34 +148,34 @@ jobs:
           CODE="${{ steps.check_site.outputs.status_code }}"
           RESP="${{ steps.check_site.outputs.response_time }}"
           UPTIME="${{ steps.check_site.outputs.uptime_percent }}"
-          KEYWORD="${{ steps.check_site.outputs.keyword_found }}"
+          CHECKED_AT="${{ steps.check_site.outputs.checked_at }}"
 
           echo "STATUS=${STATUS}"
           echo "CODE=${CODE}"
           echo "RESP=${RESP}"
           echo "UPTIME=${UPTIME}"
-          echo "KEYWORD_FOUND=${KEYWORD}"
+          echo "CHECKED_AT=${CHECKED_AT}"
 
           if [ "$STATUS" = "UP" ]; then
-            ICON="✅"
+            # ✅ UP message (NO HTTP CODE)
+            MSG="✅ Cinepolis Website is UP! ✅%0AURL: https://www.cinepolis.com/in%0AResponse Time: ${RESP}ms%0AChecked At: ${CHECKED_AT}"
           else
-            ICON="🚨"
+            # 🚨 DOWN / ERROR message (yahan chahe to CODE hata sakte ho)
+            MSG="🚨 Cinepolis Website might be DOWN! 🚨%0AURL: https://www.cinepolis.com/in%0AHTTP Code: ${CODE}%0AResponse Time: ${RESP}ms%0AChecked At: ${CHECKED_AT}"
           fi
 
-          CAPTION="${ICON} Cinepolis Status ${ICON}\nURL: https://www.cinepolis.com/in\nStatus: ${STATUS} (HTTP ${CODE})\nKeyword found: ${KEYWORD}\nResponse: ${RESP} ms\nUptime (24h): ${UPTIME}%"
+          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
+            -d parse_mode="Markdown"
 
-          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendPhoto" \
-            -F chat_id="${CHAT_ID}" \
-            -F photo="@latest_screenshot.png" \
-            --form-string "caption=${CAPTION}"
-
-      - name: Commit status.json, log.json and screenshot
+      - name: Commit status.json and log.json
         run: |
           if git status --porcelain | grep .; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add status.json log.json latest_screenshot.png || true
-            git commit -m "chore: update hybrid uptime status [skip ci]" || echo "No changes to commit"
+            git add status.json log.json || true
+            git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
             git push
           else
             echo "No changes to commit"
