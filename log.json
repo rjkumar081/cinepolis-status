@@ -29,5 +29,13 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 186
+  },
+  {
+    "checked_at": "2025-11-25T06:30:59.751Z",
+    "status": "UNKNOWN",
+    "status_code": 200,
+    "response_time": 531,
+    "keyword_found": false,
+    "error": "page.waitForTimeout is not a function"
   }
 ]

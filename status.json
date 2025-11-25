@@ -1,7 +1,9 @@
 {
-  "checked_at": "2025-11-25T06:19:51.856Z",
-  "status": "UP",
-  "status_code": 403,
-  "response_time": 186,
-  "uptime_24h": "40.00"
+  "checked_at": "2025-11-25T06:30:59.751Z",
+  "status": "UNKNOWN",
+  "status_code": 200,
+  "response_time": 531,
+  "keyword_found": false,
+  "error": "page.waitForTimeout is not a function",
+  "uptime_24h": "33.33"
 }
