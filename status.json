@@ -1,7 +1,7 @@
 {
-  "checked_at": "2025-11-25T06:02:36.050Z",
-  "status": "UP",
-  "status_code": 200,
-  "response_time": 640,
-  "uptime_24h": "50.00"
+  "checked_at": "2025-11-25T06:08:55.568Z",
+  "status": "DOWN",
+  "status_code": 403,
+  "response_time": 55,
+  "uptime_24h": "33.33"
 }
