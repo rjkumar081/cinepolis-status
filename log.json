@@ -37,5 +37,13 @@
     "response_time": 531,
     "keyword_found": false,
     "error": "page.waitForTimeout is not a function"
+  },
+  {
+    "checked_at": "2025-11-25T06:38:17.456Z",
+    "status": "BLOCKED",
+    "status_code": 403,
+    "response_time": 121,
+    "keyword_found": false,
+    "error": "page.waitForTimeout is not a function"
   }
 ]
