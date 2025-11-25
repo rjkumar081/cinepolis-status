@@ -2,14 +2,14 @@ name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
+    - cron: "*/10 * * * *"   # हर 10 मिनट
   workflow_dispatch:
 
 jobs:
   monitor:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -22,11 +22,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install deps (fs-extra)
         run: |
           npm install fs-extra
 
-      - name: Check Website Status and Update JSON
+      - name: Check website & update JSON
         id: check_site
         run: |
           node <<'EOF'
@@ -37,7 +37,7 @@ jobs:
           const STATUS_FILE = path.join("status.json");  // latest status
           const LOG_FILE = path.join("log.json");        // history
           const URL = "https://www.cinepolis.com/in";
-          const MAX_LOG = 1440; // 24h if every 1 min, 10-min interval पे approx 10 दिन
+          const MAX_LOG = 1440;
 
           let status = "DOWN";
           let statusCode = 0;
@@ -46,7 +46,6 @@ jobs:
           try {
             const start = Date.now();
 
-            // Curl with Chrome fingerprint (Cloudflare bypass)
             const cmd =
               `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
               `-H "Accept-Language: en-US,en;q=0.9" ` +
@@ -62,17 +61,17 @@ jobs:
                 status = "UP";
               }
             }
-
           } catch (err) {
             console.log("curl error:", err.message);
           }
 
           (async () => {
-            // LOG: array of entries
+            // log.json (array)
             let log = [];
             if (await fs.pathExists(LOG_FILE)) {
               try {
-                log = JSON.parse(await fs.readFile(LOG_FILE, "utf8")) || [];
+                const raw = await fs.readFile(LOG_FILE, "utf8");
+                log = JSON.parse(raw);
                 if (!Array.isArray(log)) log = [];
               } catch {
                 log = [];
@@ -90,17 +89,14 @@ jobs:
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
             const upPct = (
-              (log.filter(e => e.status === "UP").length / log.length) *
-              100
+              (log.filter(e => e.status === "UP").length / log.length) * 100
             ).toFixed(2);
 
-            // previous status (second last entry)
             let prevStatus = "";
             if (log.length >= 2) {
               prevStatus = log[log.length - 2].status || "";
             }
 
-            // status.json -> सिर्फ latest summary
             const latestStatus = {
               checked_at: entry.checked_at,
               status,
@@ -112,24 +108,24 @@ jobs:
             await fs.writeJson(STATUS_FILE, latestStatus, { spaces: 2 });
             await fs.writeJson(LOG_FILE, log, { spaces: 2 });
 
-            // env vars (optional)
+            // env (optional)
             const envLines = [
               `STATUS=${status}`,
               `STATUS_CODE=${statusCode}`,
               `UPTIME_PERCENT=${upPct}`,
               `RESPONSE_TIME=${responseTime}`,
               `PREV_STATUS=${prevStatus}`,
-            ].join("\\n") + "\\n";
+            ].join("\n") + "\n";
             fs.appendFileSync(process.env.GITHUB_ENV, envLines);
 
-            // step outputs (for if: conditions)
+            // step outputs
             const outputLines = [
               `status=${status}`,
               `status_code=${statusCode}`,
               `uptime_percent=${upPct}`,
               `response_time=${responseTime}`,
               `prev_status=${prevStatus}`,
-            ].join("\\n") + "\\n";
+            ].join("\n") + "\n";
             fs.appendFileSync(process.env.GITHUB_OUTPUT, outputLines);
           })().catch(err => {
             console.error("Monitor error:", err);
@@ -153,7 +149,7 @@ jobs:
             -d parse_mode="Markdown"
 
       - name: Telegram Alert - UP (if previously DOWN)
-        if: ${{ and(eq(steps.check_site.outputs.status, 'UP'), ne(steps.check_site.outputs.prev_status, 'UP')) }}
+        if: ${{ steps.check_site.outputs.status == 'UP' && steps.check_site.outputs.prev_status != 'UP' }}
         env:
           TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
