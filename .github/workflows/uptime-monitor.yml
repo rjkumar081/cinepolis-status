@@ -1,8 +1,8 @@
-name: Cinepolis Uptime Monitor (REAL BROWSER)
+name: Cinepolis Uptime Monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/10 * * * *"   # हर 10 मिनट
   workflow_dispatch:
 
 jobs:
@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -24,111 +24,134 @@ jobs:
         run: |
           npm install fs-extra puppeteer
 
-      - name: Real Browser Check (Puppeteer)
+      - name: Check site with real browser (Puppeteer)
         id: check_site
         run: |
           node <<'EOF'
-          const fs = require("fs-extra");
-          const puppeteer = require("puppeteer");
+          const fs = require('fs-extra');
+          const puppeteer = require('puppeteer');
 
-          const STATUS_FILE = "status.json";
-          const LOG_FILE = "log.json";
-          const URL = "https://www.cinepolis.com/in";
+          const STATUS_FILE = 'status.json';
+          const LOG_FILE = 'log.json';
+          const URL = 'https://www.cinepolis.com/in';
           const MAX_LOG = 1440;
 
-          let status = "DOWN";
-          let statusCode = 0;
-          let responseTime = 0;
+          async function main() {
+            let status = 'DOWN';
+            let statusCode = 0;
+            let responseTime = 0;
 
-          (async () => {
             const browser = await puppeteer.launch({
-              headless: "new",
-              args: ['--no-sandbox', '--disable-setuid-sandbox']
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox'],
             });
 
-            const page = await browser.newPage();
-            const start = Date.now();
-
             try {
+              const page = await browser.newPage();
+              const start = Date.now();
               const response = await page.goto(URL, {
-                waitUntil: "domcontentloaded",
-                timeout: 30000
+                waitUntil: 'domcontentloaded',
+                timeout: 30000,
               });
-
               responseTime = Date.now() - start;
               statusCode = response.status();
-
               if (statusCode >= 200 && statusCode < 400) {
-                status = "UP";
+                status = 'UP';
               }
             } catch (err) {
-              console.log("Browser error:", err.message);
+              console.log('Browser error:', err.message);
+            } finally {
+              await browser.close();
             }
 
-            await browser.close();
-
+            // read existing log
             let log = [];
             if (await fs.pathExists(LOG_FILE)) {
               try {
-                log = JSON.parse(await fs.readFile(LOG_FILE, "utf8"));
-                if (!Array.isArray(log)) log = [];
-              } catch { log = []; }
+                const raw = await fs.readFile(LOG_FILE, 'utf8');
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) log = parsed;
+              } catch {
+                log = [];
+              }
             }
 
             const entry = {
               checked_at: new Date().toISOString(),
               status,
               status_code: statusCode,
-              response_time: responseTime
+              response_time: responseTime,
             };
 
             log.push(entry);
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-            const uptime = ((log.filter(e => e.status === "UP").length / log.length) * 100).toFixed(2);
-            const prevStatus = log.length > 1 ? log[log.length - 2].status : "";
+            const upCount = log.filter(e => e.status === 'UP').length;
+            const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
+            const prevStatus = log.length > 1 ? log[log.length - 2].status : '';
 
-            await fs.writeJson(STATUS_FILE, {
-              ...entry,
-              uptime_24h: uptime
-            }, { spaces: 2 });
-
+            await fs.writeJson(
+              STATUS_FILE,
+              {
+                ...entry,
+                uptime_24h: uptimePercent,
+              },
+              { spaces: 2 }
+            );
             await fs.writeJson(LOG_FILE, log, { spaces: 2 });
 
-            fs.appendFileSync(process.env.GITHUB_OUTPUT,
-              `status=${status}\nstatus_code=${statusCode}\nresponse_time=${responseTime}\nuptime_percent=${uptime}\nprev_status=${prevStatus}\n`
-            );
-          })();
+            const outputs = {
+              status,
+              status_code: statusCode,
+              response_time: responseTime,
+              uptime_percent: uptimePercent,
+              prev_status: prevStatus,
+            };
+
+            let out = '';
+            for (const [k, v] of Object.entries(outputs)) {
+              out += `${k}=${v}\n`;
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
+          }
+
+          main().catch(err => {
+            console.error('Monitor failed:', err);
+            process.exit(1);
+          });
           EOF
 
-      - name: Telegram ALERT - DOWN
-        if: ${{ steps.check_site.outputs.status != 'UP' }}
+      - name: Telegram Alert (every 10 minutes)
         env:
-          TOKEN: $${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: $${{ secrets.TELEGRAM_CHAT_ID }}
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MSG="🚨 WEBSITE DOWN 🚨%0AURL: https://www.cinepolis.com/in%0AStatus Code: ${{ steps.check_site.outputs.status_code }}%0AResponse Time: ${{ steps.check_site.outputs.response_time }}ms"
-          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-          -d chat_id="${CHAT_ID}" \
-          --data-urlencode "text=${MSG}"
+          STATUS="${{ steps.check_site.outputs.status }}"
+          CODE="${{ steps.check_site.outputs.status_code }}"
+          RESP="${{ steps.check_site.outputs.response_time }}"
+          UPTIME="${{ steps.check_site.outputs.uptime_percent }}"
 
-      - name: Telegram RECOVERY ALERT
-        if: ${{ steps.check_site.outputs.status == 'UP' && steps.check_site.outputs.prev_status != 'UP' }}
-        env:
-          TOKEN: $${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: $${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          MSG="✅ WEBSITE RECOVERED ✅%0AURL: https://www.cinepolis.com/in%0AResponse Time: ${{ steps.check_site.outputs.response_time }}ms"
-          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-          -d chat_id="${CHAT_ID}" \
-          --data-urlencode "text=${MSG}"
+          if [ "$STATUS" = "UP" ]; then
+            ICON="✅"
+          else
+            ICON="🚨"
+          fi
 
-      - name: Commit status files
+          MSG="${ICON} *Cinepolis Status* ${ICON}%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${STATUS}%0A*HTTP Code:* ${CODE}%0A*Response Time:* ${RESP}ms%0A*Uptime (24h):* ${UPTIME}%"
+
+          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
+            -d parse_mode="Markdown"
+
+      - name: Commit status.json and log.json
         run: |
           if git status --porcelain | grep .; then
             git config user.name "github-actions[bot]"
-            git config user.email "github-actions@github.com"
-            git add status.json log.json
-            git commit -m "Update real browser status"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add status.json log.json || true
+            git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
             git push
+          else
+            echo "No changes to commit"
           fi
