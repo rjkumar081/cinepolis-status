@@ -4,5 +4,11 @@
     "status": "DOWN",
     "status_code": 403,
     "response_time": 158
+  },
+  {
+    "checked_at": "2025-11-25T06:02:36.050Z",
+    "status": "UP",
+    "status_code": 200,
+    "response_time": 640
   }
 ]
