@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -22,10 +24,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm init -y
           npm install fs-extra
 
-      - name: Check Website Status and Update Status.json (CURL MODE)
+      - name: Check Website Status and Update JSON
         id: check_site
         run: |
           node <<'EOF'
@@ -33,10 +34,10 @@ jobs:
           const fs = require("fs-extra");
           const path = require("path");
 
-          const ROOT_STATUS_FILE = path.join("public", "status.json");
-          const LOG_FOLDER = path.join("public", "logs");
+          const STATUS_FILE = path.join("status.json");  // latest status
+          const LOG_FILE = path.join("log.json");        // history
           const URL = "https://www.cinepolis.com/in";
-          const MAX_LOG = 1440;
+          const MAX_LOG = 1440; // 24h if every 1 min, 10-min interval पे approx 10 दिन
 
           let status = "DOWN";
           let statusCode = 0;
@@ -54,7 +55,7 @@ jobs:
             const output = execSync(cmd).toString();
             responseTime = Date.now() - start;
 
-            const match = output.match(/HTTP\/[\\d.]+\\s+(\\d+)/);
+            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
             if (match) {
               statusCode = parseInt(match[1], 10);
               if ([200, 301, 302].includes(statusCode)) {
@@ -67,12 +68,12 @@ jobs:
           }
 
           (async () => {
-            await fs.ensureDir(LOG_FOLDER);
-
+            // LOG: array of entries
             let log = [];
-            if (await fs.pathExists(ROOT_STATUS_FILE)) {
+            if (await fs.pathExists(LOG_FILE)) {
               try {
-                log = JSON.parse(await fs.readFile(ROOT_STATUS_FILE, "utf8")) || [];
+                log = JSON.parse(await fs.readFile(LOG_FILE, "utf8")) || [];
+                if (!Array.isArray(log)) log = [];
               } catch {
                 log = [];
               }
@@ -93,16 +94,25 @@ jobs:
               100
             ).toFixed(2);
 
-            await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
-            await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
-
             // previous status (second last entry)
             let prevStatus = "";
             if (log.length >= 2) {
               prevStatus = log[log.length - 2].status || "";
             }
 
-            // Export as environment variables for shell (optional)
+            // status.json -> सिर्फ latest summary
+            const latestStatus = {
+              checked_at: entry.checked_at,
+              status,
+              status_code: statusCode,
+              response_time: responseTime,
+              uptime_24h: upPct
+            };
+
+            await fs.writeJson(STATUS_FILE, latestStatus, { spaces: 2 });
+            await fs.writeJson(LOG_FILE, log, { spaces: 2 });
+
+            // env vars (optional)
             const envLines = [
               `STATUS=${status}`,
               `STATUS_CODE=${statusCode}`,
@@ -110,10 +120,9 @@ jobs:
               `RESPONSE_TIME=${responseTime}`,
               `PREV_STATUS=${prevStatus}`,
             ].join("\\n") + "\\n";
-
             fs.appendFileSync(process.env.GITHUB_ENV, envLines);
 
-            // Export as step outputs (for if: & expressions)
+            // step outputs (for if: conditions)
             const outputLines = [
               `status=${status}`,
               `status_code=${statusCode}`,
@@ -121,7 +130,6 @@ jobs:
               `response_time=${responseTime}`,
               `prev_status=${prevStatus}`,
             ].join("\\n") + "\\n";
-
             fs.appendFileSync(process.env.GITHUB_OUTPUT, outputLines);
           })().catch(err => {
             console.error("Monitor error:", err);
@@ -158,12 +166,12 @@ jobs:
             --data-urlencode "text=${MSG}" \
             -d parse_mode="Markdown"
 
-      - name: Commit status.json and logs
+      - name: Commit status.json and log.json
         run: |
           if git status --porcelain | grep .; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add public/status.json public/logs || true
+            git add status.json log.json || true
             git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
             git push
           else
