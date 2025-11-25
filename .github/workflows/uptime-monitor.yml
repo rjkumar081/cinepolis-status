@@ -1,4 +1,4 @@
-name: Cinepolis Uptime Monitor
+name: Cinepolis Uptime Monitor (PING)
 
 on:
   schedule:
@@ -14,61 +14,71 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          npm install fs-extra puppeteer
+          npm install fs-extra
 
-      - name: Check site with real browser (Puppeteer)
+      - name: Ping + HTTP check
         id: check_site
         run: |
           node <<'EOF'
-          const fs = require('fs-extra');
-          const puppeteer = require('puppeteer');
+          const { execSync } = require("child_process");
+          const fs = require("fs-extra");
 
-          const STATUS_FILE = 'status.json';
-          const LOG_FILE = 'log.json';
-          const URL = 'https://www.cinepolis.com/in';
+          const STATUS_FILE = "status.json";
+          const LOG_FILE = "log.json";
+          const URL = "https://www.cinepolis.com/in";
+          const HOST = "www.cinepolis.com";
           const MAX_LOG = 1440;
 
-          async function main() {
-            let status = 'DOWN';
-            let statusCode = 0;
-            let responseTime = 0;
+          let status = "DOWN";         // final status (PING based)
+          let ttl = 0;
+          let statusCode = 0;
+          let responseTime = 0;
 
-            const browser = await puppeteer.launch({
-              headless: 'new',
-              args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            });
-
-            try {
-              const page = await browser.newPage();
-              const start = Date.now();
-              const response = await page.goto(URL, {
-                waitUntil: 'domcontentloaded',
-                timeout: 30000,
-              });
-              responseTime = Date.now() - start;
-              statusCode = response.status();
-              if (statusCode >= 200 && statusCode < 400) {
-                status = 'UP';
-              }
-            } catch (err) {
-              console.log('Browser error:', err.message);
-            } finally {
-              await browser.close();
+          // ---------- PING CHECK (main truth) ----------
+          try {
+            const pingOut = execSync(`ping -c 1 -W 5 ${HOST}`).toString();
+            const ttlMatch = pingOut.match(/ttl=(\d+)/i);
+            if (ttlMatch) {
+              ttl = parseInt(ttlMatch[1], 10);
             }
+            status = "UP"; // ping successful
+          } catch (err) {
+            console.log("ping failed:", err.message);
+          }
 
-            // read existing log
+          // ---------- HTTP CHECK (info only) ----------
+          try {
+            const start = Date.now();
+            const cmd =
+              `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
+              `-H "Accept-Language: en-US,en;q=0.9" ` +
+              `--connect-timeout 15 --max-time 20 -k -s ${URL}`;
+
+            const output = execSync(cmd).toString();
+            responseTime = Date.now() - start;
+
+            const match = output.match(/HTTP\/[\\d.]+\\s+(\\d+)/);
+            if (match) statusCode = parseInt(match[1], 10);
+          } catch (err) {
+            console.log("curl error:", err.message);
+          }
+
+          (async () => {
+            // ---------- LOG LOAD ----------
             let log = [];
             if (await fs.pathExists(LOG_FILE)) {
               try {
-                const raw = await fs.readFile(LOG_FILE, 'utf8');
+                const raw = await fs.readFile(LOG_FILE, "utf8");
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) log = parsed;
               } catch {
@@ -78,23 +88,24 @@ jobs:
 
             const entry = {
               checked_at: new Date().toISOString(),
-              status,
+              status,          // PING based
               status_code: statusCode,
               response_time: responseTime,
+              ttl
             };
 
             log.push(entry);
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-            const upCount = log.filter(e => e.status === 'UP').length;
+            const upCount = log.filter(e => e.status === "UP").length;
             const uptimePercent = ((upCount / log.length) * 100).toFixed(2);
-            const prevStatus = log.length > 1 ? log[log.length - 2].status : '';
+            const prevStatus = log.length > 1 ? log[log.length - 2].status : "";
 
             await fs.writeJson(
               STATUS_FILE,
               {
                 ...entry,
-                uptime_24h: uptimePercent,
+                uptime_24h: uptimePercent
               },
               { spaces: 2 }
             );
@@ -106,17 +117,16 @@ jobs:
               response_time: responseTime,
               uptime_percent: uptimePercent,
               prev_status: prevStatus,
+              ttl
             };
 
-            let out = '';
+            let out = "";
             for (const [k, v] of Object.entries(outputs)) {
               out += `${k}=${v}\n`;
             }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, out);
-          }
-
-          main().catch(err => {
-            console.error('Monitor failed:', err);
+          })().catch(err => {
+            console.error("Monitor failed:", err);
             process.exit(1);
           });
           EOF
@@ -130,6 +140,13 @@ jobs:
           CODE="${{ steps.check_site.outputs.status_code }}"
           RESP="${{ steps.check_site.outputs.response_time }}"
           UPTIME="${{ steps.check_site.outputs.uptime_percent }}"
+          TTL="${{ steps.check_site.outputs.ttl }}"
+
+          echo "STATUS=${STATUS}"
+          echo "CODE=${CODE}"
+          echo "RESP=${RESP}"
+          echo "UPTIME=${UPTIME}"
+          echo "TTL=${TTL}"
 
           if [ "$STATUS" = "UP" ]; then
             ICON="✅"
@@ -137,7 +154,7 @@ jobs:
             ICON="🚨"
           fi
 
-          MSG="${ICON} *Cinepolis Status* ${ICON}%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${STATUS}%0A*HTTP Code:* ${CODE}%0A*Response Time:* ${RESP}ms%0A*Uptime (24h):* ${UPTIME}%"
+          MSG="${ICON} *Cinepolis Status* ${ICON}%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${STATUS}%0A*Ping TTL:* ${TTL}%0A*HTTP Code (info):* ${CODE}%0A*Response Time (curl):* ${RESP}ms%0A*Uptime (24h):* ${UPTIME}%"
 
           curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
@@ -150,7 +167,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add status.json log.json || true
-            git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
+            git commit -m "chore: update ping-based uptime status [skip ci]" || echo "No changes to commit"
             git push
           else
             echo "No changes to commit"
