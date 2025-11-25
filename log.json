@@ -267,5 +267,11 @@
     "status": "UP",
     "status_code": 301,
     "response_time": 130
+  },
+  {
+    "checked_at": "2025-11-25T19:55:03.795Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 40
   }
 ]
