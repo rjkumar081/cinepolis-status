@@ -1,4 +1,4 @@
-name: Cinepolis Uptime Monitor (PING)
+name: Cinepolis Uptime Monitor
 
 on:
   schedule:
@@ -26,7 +26,7 @@ jobs:
         run: |
           npm install fs-extra
 
-      - name: Ping + HTTP check
+      - name: HTTP check with curl
         id: check_site
         run: |
           node <<'EOF'
@@ -36,29 +36,15 @@ jobs:
           const STATUS_FILE = "status.json";
           const LOG_FILE = "log.json";
           const URL = "https://www.cinepolis.com/in";
-          const HOST = "www.cinepolis.com";
           const MAX_LOG = 1440;
 
-          let status = "DOWN";         // final status (PING based)
-          let ttl = 0;
+          let status = "DOWN";
           let statusCode = 0;
           let responseTime = 0;
 
-          // ---------- PING CHECK (main truth) ----------
-          try {
-            const pingOut = execSync(`ping -c 1 -W 5 ${HOST}`).toString();
-            const ttlMatch = pingOut.match(/ttl=(\d+)/i);
-            if (ttlMatch) {
-              ttl = parseInt(ttlMatch[1], 10);
-            }
-            status = "UP"; // ping successful
-          } catch (err) {
-            console.log("ping failed:", err.message);
-          }
-
-          // ---------- HTTP CHECK (info only) ----------
           try {
             const start = Date.now();
+
             const cmd =
               `curl -I -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" ` +
               `-H "Accept-Language: en-US,en;q=0.9" ` +
@@ -67,14 +53,23 @@ jobs:
             const output = execSync(cmd).toString();
             responseTime = Date.now() - start;
 
-            const match = output.match(/HTTP\/[\\d.]+\\s+(\\d+)/);
-            if (match) statusCode = parseInt(match[1], 10);
+            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
+            if (match) {
+              statusCode = parseInt(match[1], 10);
+            }
+
+            // IMPORTANT:
+            // Curl command सफल चला मतलब TCP connect + HTTP response मिल गया
+            // => infra UP है, Cloudflare 403 आए तो भी "UP"
+            status = "UP";
+
           } catch (err) {
             console.log("curl error:", err.message);
+            status = "DOWN";
           }
 
           (async () => {
-            // ---------- LOG LOAD ----------
+            // पुराना log पढ़ो
             let log = [];
             if (await fs.pathExists(LOG_FILE)) {
               try {
@@ -88,10 +83,9 @@ jobs:
 
             const entry = {
               checked_at: new Date().toISOString(),
-              status,          // PING based
+              status,
               status_code: statusCode,
-              response_time: responseTime,
-              ttl
+              response_time: responseTime
             };
 
             log.push(entry);
@@ -116,8 +110,7 @@ jobs:
               status_code: statusCode,
               response_time: responseTime,
               uptime_percent: uptimePercent,
-              prev_status: prevStatus,
-              ttl
+              prev_status: prevStatus
             };
 
             let out = "";
@@ -140,13 +133,11 @@ jobs:
           CODE="${{ steps.check_site.outputs.status_code }}"
           RESP="${{ steps.check_site.outputs.response_time }}"
           UPTIME="${{ steps.check_site.outputs.uptime_percent }}"
-          TTL="${{ steps.check_site.outputs.ttl }}"
 
           echo "STATUS=${STATUS}"
           echo "CODE=${CODE}"
           echo "RESP=${RESP}"
           echo "UPTIME=${UPTIME}"
-          echo "TTL=${TTL}"
 
           if [ "$STATUS" = "UP" ]; then
             ICON="✅"
@@ -154,7 +145,7 @@ jobs:
             ICON="🚨"
           fi
 
-          MSG="${ICON} *Cinepolis Status* ${ICON}%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${STATUS}%0A*Ping TTL:* ${TTL}%0A*HTTP Code (info):* ${CODE}%0A*Response Time (curl):* ${RESP}ms%0A*Uptime (24h):* ${UPTIME}%"
+          MSG="${ICON} *Cinepolis Status* ${ICON}%0A*URL:* https://www.cinepolis.com/in%0A*Status:* ${STATUS}%0A*HTTP Code:* ${CODE}%0A*Response Time:* ${RESP}ms%0A*Uptime (24h):* ${UPTIME}%"
 
           curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
@@ -167,7 +158,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add status.json log.json || true
-            git commit -m "chore: update ping-based uptime status [skip ci]" || echo "No changes to commit"
+            git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
             git push
           else
             echo "No changes to commit"
