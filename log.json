@@ -249,5 +249,11 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 104
+  },
+  {
+    "checked_at": "2025-11-25T19:15:19.557Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 109
   }
 ]
