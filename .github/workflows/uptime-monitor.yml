@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
-          npm install jq fs-extra
+          npm install fs-extra
 
       - name: Check Website Status and Update Status.json (CURL MODE)
         id: check_site
@@ -54,9 +54,9 @@ jobs:
             const output = execSync(cmd).toString();
             responseTime = Date.now() - start;
 
-            const match = output.match(/HTTP\/[\d.]+\s+(\d+)/);
+            const match = output.match(/HTTP\/[\\d.]+\\s+(\\d+)/);
             if (match) {
-              statusCode = parseInt(match[1]);
+              statusCode = parseInt(match[1], 10);
               if ([200, 301, 302].includes(statusCode)) {
                 status = "UP";
               }
@@ -66,7 +66,6 @@ jobs:
             console.log("curl error:", err.message);
           }
 
-          // Save log
           (async () => {
             await fs.ensureDir(LOG_FOLDER);
 
@@ -89,41 +88,84 @@ jobs:
             log.push(entry);
             if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
 
-            const upPct = ((log.filter(e => e.status === "UP").length / log.length) * 100).toFixed(2);
+            const upPct = (
+              (log.filter(e => e.status === "UP").length / log.length) *
+              100
+            ).toFixed(2);
 
             await fs.writeJson(ROOT_STATUS_FILE, log, { spaces: 2 });
             await fs.writeJson(path.join(LOG_FOLDER, `${Date.now()}.json`), entry, { spaces: 2 });
 
-            // Export vars for telegram
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS=${status}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `STATUS_CODE=${statusCode}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `UPTIME_PERCENT=${upPct}\n`);
-            fs.appendFileSync(process.env.GITHUB_ENV, `RESPONSE_TIME=${responseTime}\n`);
-          })();
+            // previous status (second last entry)
+            let prevStatus = "";
+            if (log.length >= 2) {
+              prevStatus = log[log.length - 2].status || "";
+            }
+
+            // Export as environment variables for shell (optional)
+            const envLines = [
+              `STATUS=${status}`,
+              `STATUS_CODE=${statusCode}`,
+              `UPTIME_PERCENT=${upPct}`,
+              `RESPONSE_TIME=${responseTime}`,
+              `PREV_STATUS=${prevStatus}`,
+            ].join("\\n") + "\\n";
+
+            fs.appendFileSync(process.env.GITHUB_ENV, envLines);
+
+            // Export as step outputs (for if: & expressions)
+            const outputLines = [
+              `status=${status}`,
+              `status_code=${statusCode}`,
+              `uptime_percent=${upPct}`,
+              `response_time=${responseTime}`,
+              `prev_status=${prevStatus}`,
+            ].join("\\n") + "\\n";
+
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, outputLines);
+          })().catch(err => {
+            console.error("Monitor error:", err);
+            process.exit(1);
+          });
           EOF
 
       - name: Telegram Alert - DOWN
-        if: ${{ env.STATUS != 'UP' }}
+        if: ${{ steps.check_site.outputs.status != 'UP' }}
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATUS_CODE: ${{ steps.check_site.outputs.status_code }}
+          RESPONSE_TIME: ${{ steps.check_site.outputs.response_time }}
+          UPTIME_PERCENT: ${{ steps.check_site.outputs.uptime_percent }}
         run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${{ env.STATUS_CODE }}%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-          curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d chat_id="$CHAT_ID" \
-            --data-urlencode "text=$MSG" \
+          MSG="🚨 *Website DOWN!* 🚨%0A*URL:* https://www.cinepolis.com/in%0A*Status Code:* ${STATUS_CODE}%0A*Response Time:* ${RESPONSE_TIME}ms%0A*Uptime (24h):* ${UPTIME_PERCENT}%"
+          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
             -d parse_mode="Markdown"
 
       - name: Telegram Alert - UP (if previously DOWN)
-        if: ${{ env.STATUS == 'UP' }}
+        if: ${{ and(eq(steps.check_site.outputs.status, 'UP'), ne(steps.check_site.outputs.prev_status, 'UP')) }}
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RESPONSE_TIME: ${{ steps.check_site.outputs.response_time }}
+          UPTIME_PERCENT: ${{ steps.check_site.outputs.uptime_percent }}
         run: |
-          TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}"
-          PREV_STATUS=$(jq -r '.[-2].status // ""' public/status.json || echo "")
-          
-          if [ "$PREV_STATUS" != "UP" ]; then
-            MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${{ env.RESPONSE_TIME }}ms%0A*Uptime (24h):* ${{ env.UPTIME_PERCENT }}%"
-            curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-              -d chat_id="$CHAT_ID" \
-              --data-urlencode "text=$MSG" \
-              -d parse_mode="Markdown"
+          MSG="✅ *Website is UP!* ✅%0A*URL:* https://www.cinepolis.com/in%0A*Response Time:* ${RESPONSE_TIME}ms%0A*Uptime (24h):* ${UPTIME_PERCENT}%"
+          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
+            -d parse_mode="Markdown"
+
+      - name: Commit status.json and logs
+        run: |
+          if git status --porcelain | grep .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add public/status.json public/logs || true
+            git commit -m "chore: update uptime status [skip ci]" || echo "No changes to commit"
+            git push
+          else
+            echo "No changes to commit"
           fi
