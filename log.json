@@ -123,5 +123,11 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 95
+  },
+  {
+    "checked_at": "2025-11-25T10:57:48.586Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 125
   }
 ]
