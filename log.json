@@ -45,5 +45,11 @@
     "response_time": 121,
     "keyword_found": false,
     "error": "page.waitForTimeout is not a function"
+  },
+  {
+    "checked_at": "2025-11-25T06:42:04.459Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 51
   }
 ]
