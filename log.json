@@ -1005,5 +1005,11 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 57
+  },
+  {
+    "checked_at": "2025-11-27T17:48:45.602Z",
+    "status": "UP",
+    "status_code": 301,
+    "response_time": 257
   }
 ]
