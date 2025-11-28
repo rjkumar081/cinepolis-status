@@ -1221,5 +1221,11 @@
     "status": "UP",
     "status_code": 301,
     "response_time": 125
+  },
+  {
+    "checked_at": "2025-11-28T07:20:26.127Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 47
   }
 ]
