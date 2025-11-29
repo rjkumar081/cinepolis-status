@@ -2007,5 +2007,11 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 125
+  },
+  {
+    "checked_at": "2025-11-29T23:54:41.848Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 90
   }
 ]
