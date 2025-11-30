@@ -2163,5 +2163,11 @@
     "status": "UP",
     "status_code": 403,
     "response_time": 115
+  },
+  {
+    "checked_at": "2025-11-30T11:13:45.608Z",
+    "status": "UP",
+    "status_code": 403,
+    "response_time": 55
   }
 ]
